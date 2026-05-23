@@ -95,3 +95,4 @@ PostgreSQL (tbl_sec_reports)      ← DB_BACKEND=postgres (운영 중)
 - [ ] **ADR-005** PostgREST 배포 + 프론트엔드 엔드포인트 교체
 - [ ] **ADR-005** Oracle ATP 제거
 - [ ] **ADR-006** pytest 기반 테스트 코드 도입
+- [ ] **운영 표준화** secrets/env 생성 및 CI/CD 호출 방식 통일 ([Secrets / Env Standardization TODO](secrets-env-standardization.md))
