@@ -152,7 +152,7 @@ PostgreSQL V2 소문자 스키마 → [docs/postgresql-v2.md](docs/postgresql-v2
 
 ```bash
 # Docker (운영)
-python3 ~/secrets/generate_env.py scraper
+python3 ~/secrets/generate_env.py "$PWD"
 docker compose pull && docker compose up -d
 
 # 로컬
@@ -160,7 +160,7 @@ uv sync && cp .env.example .env
 uv run scraper.py
 ```
 
-`.env`는 수동 편집하지 말고, 항상 `python3 ~/secrets/generate_env.py scraper`로 재생성합니다.
+`.env`는 수동 편집하지 말고, 항상 `python3 ~/secrets/generate_env.py "$PWD"` 또는 `make env`로 재생성합니다.
 
 ---
 

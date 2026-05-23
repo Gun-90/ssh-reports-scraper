@@ -17,9 +17,9 @@
   - `ssh_reports_hub` — 비밀번호 회전 완료 (2026-04-17)
 - 시크릿 관리: `~/secrets/{infra,ssh-reports-scraper,ssh-reports-hub}/secrets.json` (chmod 600)
 - **PostgreSQL 비번은 `infra/secrets.json`이 단일 진실 소스** (`POSTGRES_SSH_REPORTS_HUB_PASSWORD`)
-- `.env` 재생성: `python3 ~/secrets/generate_env.py` (전체) / `python3 ~/secrets/generate_env.py scraper` (개별)
-- 스크래퍼 워크스페이스 `.env`는 반드시 `python3 ~/secrets/generate_env.py scraper`로 갱신하며, 수동 편집하지 않음
-- 비번 변경 절차: `infra/secrets.json` 수정 → `generate_env.py` 실행 → 컨테이너 `down && up`
+- `.env` 재생성: `python3 ~/secrets/generate_env.py "$PWD"` (표준) 또는 `python3 ~/secrets/generate_env.py scraper` (alias)
+- 스크래퍼 워크스페이스 `.env`는 반드시 `python3 ~/secrets/generate_env.py "$PWD"` 또는 `make env`로 갱신하며, 수동 편집하지 않음
+- 비번 변경 절차: `infra/secrets.json` 수정 → `python3 ~/secrets/generate_env.py "$PWD"` 실행 → 컨테이너 `down && up`
 
 ```
 스크래퍼 (scraper.py)
