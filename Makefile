@@ -1,5 +1,5 @@
-SECRETS_SCRIPT := python3 $(HOME)/secrets/generate_env.py
-COMPOSE        := docker compose
+SECRETS := python3 $(HOME)/secrets/generate_env.py $(CURDIR)
+COMPOSE := docker compose
 
 .PHONY: up down build restart restart-scraper restart-alert logs logs-scraper logs-alert ps env env-scraper env-alert env-api test lint
 
@@ -20,10 +20,10 @@ restart: env build
 	$(COMPOSE) restart
 
 ## 서비스별 시크릿 갱신 및 빌드 후 재시작
-restart-scraper: env-scraper
+restart-scraper: env
 	$(COMPOSE) up -d --build main-scraper
 
-restart-alert: env-alert
+restart-alert: env
 	$(COMPOSE) up -d --build report-keyword-alert
 
 ## 전체 로그 (follow)
@@ -48,16 +48,13 @@ test:
 lint:
 	uv run ruff check .
 
-## 전체 환경 변수 생성
+## 환경 변수 생성 (현재 디렉토리 기준)
 env:
-	$(SECRETS_SCRIPT)
+	$(SECRETS)
 
-## 서비스별 환경 변수 생성 분리
-env-scraper:
-	$(SECRETS_SCRIPT) scraper
+## 서비스별 환경 변수 생성 (alias 호환 — 모두 $(CURDIR) 사용)
+env-scraper: env
 
-env-alert:
-	$(SECRETS_SCRIPT) scraper
+env-alert: env
 
-env-api:
-	$(SECRETS_SCRIPT) api
+env-api: env

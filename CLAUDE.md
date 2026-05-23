@@ -24,8 +24,8 @@ scraper.py (스케줄러)
 2. **DB는 반드시 `db_factory.get_db()` 사용** — `SQLiteManager` / `PostgreSQLManager`를 직접 인스턴스화하지 않음
 3. **`secrets.json`에 불필요한 키를 추가하지 말 것** — `common` 섹션은 `generate_env.py`가 실제로 쓰는 키만 존재
 4. **`OracleManager` / Oracle 관련 코드를 건드리지 말 것** — ADR-005에서 제거 예정, 현재 비활성
-5. **.env는 자동 생성** — `python3 ~/secrets/generate_env.py scraper`로 생성. 직접 편집하지 않음
-6. **`.env` 갱신 원칙** — 워크스페이스별 `.env`는 `~/secrets/generate_env.py scraper`가 단일 진실 소스이며, 변경이 필요하면 먼저 `~/secrets/ssh-reports-scraper/secrets.json` 또는 `~/secrets/infra/secrets.json`를 확인할 것
+5. **.env는 자동 생성** — `python3 ~/secrets/generate_env.py "$PWD"`로 생성. 직접 편집하지 않음
+6. **`.env` 갱신 원칙** — 워크스페이스별 `.env`는 `python3 ~/secrets/generate_env.py "$PWD"` 또는 `make env`가 표준이며, 변경이 필요하면 먼저 `~/secrets/**/secrets.json` 또는 `~/secrets/infra/secrets.json`을 확인할 것. 배포 시에는 `~/secrets/deploy_prepare.py`가 자동 처리.
 
 ---
 
@@ -67,6 +67,7 @@ scraper.py (스케줄러)
 - `common`에는 `generate_env.py`가 `.env`에 기록하는 키만 존재
 - `urls` 섹션이 Ghost Mode의 핵심 — 스크래핑 대상 URL은 여기에만 기재
 - `generate_env.py`가 `URLS_{key}` 환경변수로 변환 → `config.get_urls(key)`로 취득
+- `.env` 재생성 표준 명령: `python3 ~/secrets/generate_env.py "$PWD"` (alias `scraper`도 지원)
 
 ---
 
@@ -91,7 +92,7 @@ TARGET_URL = "https://www.samsungpop.com/..."
 
 1. `modules/{Name}_{N}.py` 생성 — 명명 규칙: `{이름}_{연번}.py` (예: `Heungkuk_28.py`)
 2. `~/secrets/ssh-reports-scraper/secrets.json`의 `urls` 섹션에 URL 추가
-3. `python3 ~/secrets/generate_env.py scraper`로 `.env` 재생성
+3. `python3 ~/secrets/generate_env.py "$PWD"` 또는 `make env`로 `.env` 재생성
 4. `scraper.py`의 `async_functions` 또는 `sync_funcs` 리스트에 함수 추가
 5. `FirmInfo`에서 참조한다면 DB의 `TBM_SEC_FIRM_INFO` / `TBM_SEC_FIRM_BOARD_INFO`에 행 추가
 
@@ -131,6 +132,6 @@ TARGET_URL = "https://www.samsungpop.com/..."
 - `secrets.json`의 `common`에 `API_URL_*`, `*_BASE`, `*_LIST_PATH`, `*_PARAM_*` 같은 분해된 URL 키를 추가하지 말 것 (Gemini가 추가해서 문제가 된 전례 있음)
 - `OracleManager`를 새 코드에서 참조하지 말 것
 - `.env`를 직접 편집하지 말 것 — `generate_env.py`로 재생성할 것
-- `.env`가 어긋나 보이면 먼저 `~/secrets/generate_env.py scraper`를 다시 실행하고, 그 다음 `POSTGRES_*` / `SQLITE_DB_PATH`가 기대값인지 확인할 것
+- `.env`가 어긋나 보이면 먼저 `python3 ~/secrets/generate_env.py "$PWD"`를 다시 실행하고, 그 다음 `POSTGRES_*` / `SQLITE_DB_PATH`가 기대값인지 확인할 것. 배포 서버라면 `deploy_prepare.py`가 처리했는지 확인.
 - `docs/architecture.md`의 ADR에 반하는 설계 변경을 하지 말 것
 - `PostgreSQLManagerV2`를 `DB_BACKEND=postgres_v2`로 운영에 사용하지 말 것 (검증 전용)
