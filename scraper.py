@@ -50,6 +50,52 @@ from modules.Yuanta_27 import Yuanta_checkNewArticle # 비동기 버전 (파일�
 load_dotenv()
 token = os.getenv('TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET')
 chat_id = os.getenv('TELEGRAM_CHANNEL_ID_REPORT_ALARM')
+SCRAPER_STALE_DAYS = int(os.getenv("SCRAPER_STALE_DAYS", "5"))
+SCRAPER_HEALTH_ERRORS = []
+
+
+def log_scraper_health(name, rows):
+    if not isinstance(rows, list):
+        msg = f"{name} returned non-list result: {type(rows)}"
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+        return
+
+    if not rows:
+        msg = f"{name} returned 0 articles. Check source API, selector, or credentials."
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+        return
+
+    reg_dates = sorted({
+        str(row.get("reg_dt", ""))[:8]
+        for row in rows
+        if row.get("reg_dt")
+    })
+    if not reg_dates:
+        msg = f"{name} returned {len(rows)} articles but no reg_dt values."
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+        return
+
+    min_reg_dt = reg_dates[0]
+    max_reg_dt = reg_dates[-1]
+    logger.info(f"{name} => Found {len(rows)} articles (reg_dt {min_reg_dt}~{max_reg_dt})")
+
+    try:
+        max_date = datetime.datetime.strptime(max_reg_dt, "%Y%m%d").date()
+        stale_cutoff = datetime.datetime.now().date() - datetime.timedelta(days=SCRAPER_STALE_DAYS)
+        if max_date < stale_cutoff:
+            msg = (
+                f"{name} latest reg_dt is stale: {max_reg_dt} "
+                f"(older than {SCRAPER_STALE_DAYS} days)"
+            )
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
+    except ValueError:
+        msg = f"{name} returned invalid max reg_dt: {max_reg_dt}"
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
 
 async def enrich_data():
     logger.info("Starting data enrichment process...")
@@ -173,10 +219,12 @@ def run_sync_scrapers(sync_funcs, total_data):
             res = func()
             if res:
                 total_data.extend(res)
-                logger.info(f"{func.__name__} => Found {len(res)} articles")
+            log_scraper_health(func.__name__, res)
             time.sleep(1)
         except Exception as e:
-            logger.error(f"Sync Scraper Error ({func.__name__}): {e}")
+            msg = f"Sync Scraper Error ({func.__name__}): {e}"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
 
 async def run_async_scrapers(async_funcs, total_data):
     logger.info(f"Launching {len(async_funcs)} async scrapers...")
@@ -198,13 +246,17 @@ async def run_async_scrapers(async_funcs, total_data):
             # 호출 결과가 이미 리스트인 경우 (동기 함수처럼 동작한 경우) 즉시 처리
             elif isinstance(res, list):
                 total_data.extend(res)
-                logger.info(f"{f.__name__} (Sync-like) => Found {len(res)} articles")
+                log_scraper_health(f.__name__, res)
             # 그 외의 경우 (None 등)
             elif res is not None:
-                logger.warning(f"{f.__name__} returned unexpected type: {type(res)}")
+                msg = f"{f.__name__} returned unexpected type: {type(res)}"
+                SCRAPER_HEALTH_ERRORS.append(msg)
+                logger.error(msg)
                 
         except Exception as e:
-            logger.error(f"Error calling scraper {f.__name__}: {e}")
+            msg = f"Error calling scraper {f.__name__}: {e}"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
 
     if not tasks:
         return
@@ -214,12 +266,16 @@ async def run_async_scrapers(async_funcs, total_data):
     for idx, res in enumerate(results):
         name = task_names[idx]
         if isinstance(res, Exception):
-            logger.error(f"Async Scraper Error ({name}): {res}")
+            msg = f"Async Scraper Error ({name}): {res}"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
         elif isinstance(res, list):
             total_data.extend(res)
-            logger.info(f"{name} => Found {len(res)} articles")
+            log_scraper_health(name, res)
         elif res is not None:
-            logger.warning(f"{name} returned non-list result: {type(res)}")
+            msg = f"{name} returned non-list result: {type(res)}"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
 
 async def main(date_str=None):
     logger.info("=================== SCRAPER START ===================")
@@ -276,6 +332,9 @@ async def main(date_str=None):
     # 발송 전에 DB 연결을 새로 하거나 세션을 확실히 분리하여 최신 데이터를 가져옴
     await daily_send_report(date_str=date_str)
     logger.info("=================== SCRAPER END =====================")
+    if SCRAPER_HEALTH_ERRORS:
+        joined = "; ".join(SCRAPER_HEALTH_ERRORS)
+        raise RuntimeError(f"Scraper health check failed: {joined}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -48,7 +48,7 @@ class PostgreSQLManager:
     )
 
     def __init__(self):
-        load_dotenv(override=True)
+        load_dotenv(override=False)
         self.host = os.getenv("POSTGRES_HOST", "localhost")
         self.port = os.getenv("POSTGRES_PORT", "5432")
         self.database = os.getenv("POSTGRES_REPORT_DB", "ssh_reports_hub")
@@ -152,6 +152,9 @@ class PostgreSQLManager:
             )
             for entry in json_data_list
         ]
+        if not records:
+            logger.info("PostgreSQL Data inserted: 0 rows, updated: 0 rows.")
+            return 0, 0
 
         sql = f'''
             INSERT INTO {table_name} (
@@ -177,12 +180,14 @@ class PostgreSQLManager:
         try:
             with conn:
                 with conn.cursor() as cur:
-                    psycopg2.extras.execute_values(cur, sql, records)
-                    for (is_insert,) in cur.fetchall():
-                        if is_insert:
-                            inserted += 1
-                        else:
-                            updated += 1
+                    for start in range(0, len(records), 1000):
+                        chunk = records[start:start + 1000]
+                        psycopg2.extras.execute_values(cur, sql, chunk, page_size=len(chunk))
+                        for (is_insert,) in cur.fetchall():
+                            if is_insert:
+                                inserted += 1
+                            else:
+                                updated += 1
         finally:
             conn.close()
 
