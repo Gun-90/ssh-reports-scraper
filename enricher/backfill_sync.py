@@ -99,7 +99,6 @@ def run_backfill(batch_size: int = 5000, max_batches: int = 0):
                 sector_val = result["sector"] or ""
 
                 with conn.cursor() as cur:
-                    cur.execute("SET statement_timeout = '5s'")
                     cur.execute(UPDATE_SQL, (tags_json, stocks_json, sector_val, row["report_id"]))
 
                 processed_this_batch += 1
