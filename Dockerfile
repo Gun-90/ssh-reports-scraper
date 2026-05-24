@@ -31,6 +31,7 @@ COPY --chown=appuser:appgroup run/ ./run/
 COPY --chown=appuser:appgroup models/ ./models/
 COPY --chown=appuser:appgroup utils/ ./utils/
 COPY --chown=appuser:appgroup modules/ ./modules/
+COPY --chown=appuser:appgroup enricher/ ./enricher/
 COPY --chown=appuser:appgroup *.py ./
 # COPY .env ./ # .env는 docker-compose의 env_file을 통해 주입됩니다.
 

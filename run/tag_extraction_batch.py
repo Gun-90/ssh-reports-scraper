@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from models.PostgreSQLManager import PostgreSQLManager
-from models.TagExtractionManager import TagExtractionManager
+from enricher import TagExtractionManager
 
 
 async def run_batch_tag_extraction(batch_limit=20):

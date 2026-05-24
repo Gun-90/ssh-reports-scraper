@@ -3,9 +3,10 @@ Rule-Based Tag Extractor - 레포트 제목에서 규칙 기반으로 태그/종
 
 LLM을 사용하지 않고 정규식 + 키워드 사전만으로 동작합니다.
 28만 건의 레포트 데이터를 분석하여 패턴을 도출했습니다.
+
+이 모듈은 DB 의존성이 없는 순수 로직 모듈입니다.
 """
 
-import json
 import re
 import logging
 from typing import Optional
@@ -500,11 +501,10 @@ COMPILED_ACTION_PATTERNS = [(re.compile(pattern, re.IGNORECASE), action) for pat
 class TagExtractionManager:
     """
     규칙 기반 태그 추출기 — LLM 없이 정규식 + 키워드 사전만으로 동작합니다.
-    
-    기존 TagExtractionManager와 동일한 인터페이스를 제공하므로
-    배치 스크립트(tag_extraction_batch.py)를 그대로 사용할 수 있습니다.
+
+    이 클래스는 DB 의존성이 없으며, 순수하게 제목 문자열만으로 태그를 추출합니다.
     """
-    
+
     def __init__(self, api_key=None, model_name=None):
         # api_key, model_name은 인터페이스 호환용 (사용 안 함)
         pass
@@ -517,7 +517,7 @@ class TagExtractionManager:
     ) -> dict:
         """
         리포트 제목에서 규칙 기반으로 태그, 종목명, 산업, 액션타입을 추출합니다.
-        
+
         Returns:
             dict with keys: tags, stock_names, sector, action_type, status, model
         """

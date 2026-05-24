@@ -326,13 +326,12 @@ async def main(date_str=None):
             new_keys = getattr(db, '_last_inserted_keys', [])
             if new_keys:
                 try:
-                    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../enricher'))
-                    from enricher_manager import EnricherManager
-                    enricher = EnricherManager()
+                    from enricher import EnricherManager
+                    enricher = EnricherManager(db_manager=db)
                     enrich_result = enricher.enrich_by_keys(new_keys)
-                    logger.info(f"Enricher: {enrich_result['enriched']}/{len(new_keys)} enriched")
+                    logger.info(f"[Enricher] {enrich_result['enriched']}/{len(new_keys)} enriched")
                 except Exception as e:
-                    logger.warning(f"Enricher skipped (non-critical): {e}")
+                    logger.warning(f"[Enricher] skipped (non-critical): {e}")
             
             # DB 삽입 후 잠시 대기하여 트리거/커밋이 확실히 반영되도록 함
             await asyncio.sleep(1)
