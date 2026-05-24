@@ -33,8 +33,8 @@ def run_scraper():
         logger.error(f"Execution Error: {e}")
     logger.info("--- [Job End] Main Scraper ---")
 
-def run_enricher_batch(limit=50):
-    """Enricher 배치 실행 - 태그 없는 과거 레포트 태그 추출"""
+def run_enricher_batch(limit=200):
+    """Enricher 배치 실행 - 태그 없는 과거 레포트 태그 추출 (주간 catch-up)"""
     logger.info(f"--- [Job Start] Enricher Batch (limit={limit}) ---")
     try:
         from enricher import EnricherManager
@@ -47,6 +47,32 @@ def run_enricher_batch(limit=50):
     except Exception as e:
         logger.error(f"[Enricher] batch failed: {e}")
     logger.info("--- [Job End] Enricher Batch ---")
+
+def run_enricher_backfill(batches=10):
+    """Enricher 고속 백필 - 유휴시간 대량 처리 (subprocess)"""
+    logger.info(f"--- [Job Start] Enricher Backfill (batches={batches}, 5000/batch) ---")
+    try:
+        result = subprocess.run(
+            ["uv", "run", "enricher/backfill_sync.py", "5000", str(batches)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=1800,  # 30분 타임아웃
+        )
+        if result.returncode != 0:
+            logger.error(f"[Enricher] backfill exited with code {result.returncode}")
+            if result.stderr:
+                logger.error(f"[Enricher] stderr:\n{result.stderr}")
+        else:
+            # 마지막 줄만 요약 출력
+            for line in result.stdout.strip().split('\n'):
+                if '완료' in line or '평균' in line or '미처리' in line:
+                    logger.info(f"[Enricher] {line.strip()}")
+    except subprocess.TimeoutExpired:
+        logger.error("[Enricher] backfill timed out (30min)")
+    except Exception as e:
+        logger.error(f"[Enricher] backfill failed: {e}")
+    logger.info("--- [Job End] Enricher Backfill ---")
 
 def run_ai_summary(limit):
     """AI 요약 배치 실행 (현재 미사용 - 주석 처리용)"""
@@ -71,12 +97,20 @@ scheduler.add_job(
     id="main_scraper_job"
 )
 
-# [스케줄 2] Enricher 배치: 매 시간 45분에 미처리 레포트 태그 추출
+# [스케줄 2] Enricher 배치: 매 시간 45분에 미처리 레포트 태그 추출 (limit=200)
 scheduler.add_job(
     run_enricher_batch,
     CronTrigger(minute=45, jitter=120),
-    kwargs={"limit": 50},
+    kwargs={"limit": 200},
     id="enricher_batch_job"
+)
+
+# [스케줄 3] Enricher 고속 백필: 유휴시간(1-5시, 22-23시) 30분마다 50,000건씩 처리
+scheduler.add_job(
+    run_enricher_backfill,
+    CronTrigger(minute='*/30', hour='1-5,22-23', jitter=300),
+    kwargs={"batches": 10},
+    id="enricher_backfill_job"
 )
 
 # [스케줄 2] AI 요약: 일단 주석 처리 (필요 시 해제)

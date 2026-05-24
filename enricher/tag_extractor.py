@@ -558,6 +558,36 @@ class TagExtractionManager:
             "model": "rule-based",
         }
 
+    def extract_tags_sync(
+        self,
+        article_title: str,
+        firm_nm: str = "",
+        report_id: Optional[int] = None,
+    ) -> dict:
+        """extract_tags 의 동기 버전 — asyncio 오버헤드 없이 동일 로직 수행 (백필용)"""
+        title = article_title.strip()
+        if not title:
+            return self._empty_result("no title")
+
+        stock_names = self._extract_stock_names(title)
+        sector = self._classify_sector(title, firm_nm, stock_names)
+        tags = self._extract_tags(title)
+        action_type = self._classify_action(title)
+
+        if action_type and action_type not in tags:
+            tags.insert(0, action_type)
+
+        tags = list(dict.fromkeys(tags))
+
+        return {
+            "tags": tags[:8],
+            "stock_names": stock_names[:5],
+            "sector": sector,
+            "action_type": action_type,
+            "status": "success",
+            "model": "rule-based",
+        }
+
     # ── 종목명 추출 ─────────────────────────────────────────────────
 
     def _extract_stock_names(self, title: str) -> list:
