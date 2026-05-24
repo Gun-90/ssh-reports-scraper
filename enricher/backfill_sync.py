@@ -76,7 +76,7 @@ def run_backfill(batch_size: int = 5000, max_batches: int = 0):
                 FROM tbl_sec_reports
                 WHERE (tags IS NULL OR tags = '[]'::jsonb OR tags = '[]')
                   AND article_title IS NOT NULL AND article_title != ''
-                ORDER BY report_id
+                ORDER BY save_time DESC
                 LIMIT %s
             """, (batch_size,))
             rows = [dict(r) for r in cur.fetchall()]
