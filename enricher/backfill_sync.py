@@ -18,6 +18,11 @@ import sys
 import time
 from datetime import datetime
 
+# standalone 실행 시 프로젝트 루트를 path에 추가
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
@@ -31,7 +36,7 @@ def get_conn():
         host=os.getenv("POSTGRES_HOST", "localhost"),
         port=os.getenv("POSTGRES_PORT", "5432"),
         dbname=os.getenv("POSTGRES_REPORT_DB", "ssh_reports_hub"),
-        user=os.getenv("POSTGRES_USER", "ssh_reports_hub"),
+        user=os.getenv("POSTGRES_ENRICH_USER", os.getenv("POSTGRES_USER", "ssh_reports_hub")),
         password=os.getenv("POSTGRES_PASSWORD", ""),
     )
 
