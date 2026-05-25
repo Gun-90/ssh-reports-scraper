@@ -48,16 +48,16 @@ def run_enricher_batch(limit=200):
         logger.error(f"[Enricher] batch failed: {e}")
     logger.info("--- [Job End] Enricher Batch ---")
 
-def run_enricher_backfill(batches=10):
-    """Enricher 고속 백필 - 유휴시간 대량 처리 (subprocess)"""
-    logger.info(f"--- [Job Start] Enricher Backfill (batches={batches}, 5000/batch) ---")
+def run_enricher_backfill(batch_size=30000, batches=1):
+    """Enricher 고속 백필 - 5분마다 3만건씩 처리 (~3분 소요)"""
+    logger.info(f"--- [Job Start] Enricher Backfill ({batch_size}건 x {batches}배치) ---")
     try:
         result = subprocess.run(
-            ["uv", "run", "enricher/backfill_sync.py", "5000", str(batches)],
+            ["uv", "run", "enricher/backfill_sync.py", str(batch_size), str(batches)],
             capture_output=True,
             text=True,
             check=False,
-            timeout=1800,  # 30분 타임아웃
+            timeout=600,  # 10분 타임아웃
         )
         if result.returncode != 0:
             logger.error(f"[Enricher] backfill exited with code {result.returncode}")
@@ -105,11 +105,11 @@ scheduler.add_job(
     id="enricher_batch_job"
 )
 
-# [스케줄 3] Enricher 고속 백필: 유휴시간(1-5시, 22-23시) 30분마다 50,000건씩 처리
+# [스케줄 3] Enricher 고속 백필: 5분마다 30,000건씩 (~3분 소요)
 scheduler.add_job(
     run_enricher_backfill,
-    CronTrigger(minute='*/30', hour='1-5,22-23', jitter=300),
-    kwargs={"batches": 10},
+    CronTrigger(minute='*/5', jitter=30),
+    kwargs={"batch_size": 30000, "batches": 1},
     id="enricher_backfill_job"
 )
 
