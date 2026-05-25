@@ -97,11 +97,11 @@ scheduler.add_job(
     id="main_scraper_job"
 )
 
-# [스케줄 2] Enricher 배치: 30분마다 500건씩 인프로세스 처리 (subprocess 충돌 없음)
+# [스케줄 2] Enricher 배치: 15분마다 2000건 인프로세스 (~28만건/35시간)
 scheduler.add_job(
     run_enricher_batch,
-    CronTrigger(minute='*/30', jitter=120),
-    kwargs={"limit": 500},
+    CronTrigger(minute='*/15', jitter=60),
+    kwargs={"limit": 2000},
     id="enricher_batch_job"
 )
 
