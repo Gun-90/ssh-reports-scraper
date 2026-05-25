@@ -1,8 +1,8 @@
 services:
   main-scraper:
     platform: linux/arm64
-    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:${APP_ENV:-dev}
-    container_name: ssh-reports-scraper-main-scraper-${APP_ENV:-dev}
+    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:${APP_ENV:-prod}
+    container_name: ssh-reports-scraper-main-scraper-${APP_ENV:-prod}
     build: .
     restart: unless-stopped
     network_mode: "host"
@@ -12,7 +12,7 @@ services:
       - ~/logs:/log
       - ~/sqlite3:/app/db
     environment:
-      - APP_ENV=${APP_ENV:-dev}
+      - APP_ENV=${APP_ENV:-prod}
       - TZ=Asia/Seoul
       - LOG_BASE_DIR=/log
       - LOG_FILE=/log/logfile.log
@@ -28,8 +28,8 @@ services:
 
   report-keyword-alert:
     platform: linux/arm64
-    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:${APP_ENV:-dev}
-    container_name: ssh-reports-scraper-keyword-alert-${APP_ENV:-dev}    
+    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:${APP_ENV:-prod}
+    container_name: ssh-reports-scraper-keyword-alert-${APP_ENV:-prod}    
     build: .
 
     restart: always
@@ -39,7 +39,7 @@ services:
       - ~/sqlite3:/app/db
       - ~/logs:/log
     environment:
-      - APP_ENV=${APP_ENV:-dev}
+      - APP_ENV=${APP_ENV:-prod}
       - SQLITE_DB_PATH=/app/db/telegram.db
       - LOG_BASE_DIR=/log
       - TZ=Asia/Seoul
