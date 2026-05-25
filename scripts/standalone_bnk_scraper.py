@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-Standalone BNK투자증권 스크래퍼 (GitHub Actions 전용)
-- 의존성: aiohttp, beautifulsoup4
-- FirmInfo / ConfigManager / DB 없이 독립 실행
-- 결과를 JSON으로 stdout 출력
+BNK투자증권 스크래퍼 - 진단 강화 버전
+- DNS resolution, TCP connection, TLS, HTTP response 각 단계별 진단
+- traceback 전체 출력
 """
 
 import asyncio
 import json
 import re
 import sys
+import traceback
+import socket
+import ssl
 from datetime import datetime
 
 import aiohttp
@@ -38,28 +40,87 @@ BOARD_NAMES = {
 }
 
 
-async def fetch_url(session: aiohttp.ClientSession, url: str, retries: int = 5) -> BeautifulSoup | None:
-    """URL을 가져와서 BeautifulSoup 객체로 반환, 실패 시 None"""
+def diagnose_host(host: str, port: int = 443) -> dict:
+    """호스트 진단: DNS -> TCP -> TLS 단계별 확인"""
+    result = {"host": host, "port": port}
+
+    # 1. DNS resolution
+    try:
+        ip = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        result["dns"] = f"OK ({ip[0][4][0]})"
+    except Exception as e:
+        result["dns"] = f"FAIL: {e}"
+        return result
+
+    # 2. TCP connection
+    import time
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(10)
+    t0 = time.time()
+    try:
+        sock.connect((host, port))
+        result["tcp"] = f"OK ({time.time() - t0:.2f}s)"
+    except Exception as e:
+        result["tcp"] = f"FAIL ({time.time() - t0:.2f}s): {type(e).__name__}: {e}"
+        sock.close()
+        return result
+    sock.close()
+
+    # 3. TLS handshake (basic)
+    try:
+        ctx = ssl.create_default_context()
+        sock = ctx.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host)
+        sock.settimeout(10)
+        t0 = time.time()
+        sock.connect((host, port))
+        result["tls"] = f"OK ({time.time() - t0:.2f}s), cert issued to: {sock.getpeercert().get('subject', 'N/A')}"
+        sock.close()
+    except Exception as e:
+        result["tls"] = f"FAIL: {type(e).__name__}: {e}"
+
+    return result
+
+
+async def fetch_url_verbose(session: aiohttp.ClientSession, url: str, retries: int = 3) -> BeautifulSoup | None:
+    """URL을 가져오고 상세 에러 로깅"""
+    last_error = None
     for attempt in range(1, retries + 1):
         try:
-            async with session.get(url, headers=HEADERS, timeout=20) as resp:
+            async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=30, connect=15)) as resp:
+                print(f"  [DEBUG] HTTP {resp.status} {resp.reason} for {url}", file=sys.stderr)
                 resp.raise_for_status()
                 html = await resp.text()
+                print(f"  [DEBUG] Got {len(html)} bytes from {url}", file=sys.stderr)
                 return BeautifulSoup(html, "html.parser")
+        except aiohttp.ClientConnectorError as e:
+            last_error = e
+            print(f"  [DEBUG] Connection error (attempt {attempt}/{retries}): {type(e).__name__}: {e}", file=sys.stderr)
+        except aiohttp.ClientError as e:
+            last_error = e
+            print(f"  [DEBUG] Client error (attempt {attempt}/{retries}): {type(e).__name__}: {e}", file=sys.stderr)
+        except asyncio.TimeoutError as e:
+            last_error = e
+            print(f"  [DEBUG] Timeout (attempt {attempt}/{retries}): {type(e).__name__}", file=sys.stderr)
         except Exception as e:
-            if attempt < retries:
-                await asyncio.sleep(1 * attempt)
-            else:
-                print(f"[ERROR] Final failure for {url}: {e}", file=sys.stderr)
-                return None
+            last_error = e
+            print(f"  [DEBUG] Unexpected error (attempt {attempt}/{retries}): {type(e).__name__}: {e}", file=sys.stderr)
+
+        if attempt < retries:
+            await asyncio.sleep(2 * attempt)
+
+    print(f"  [ERROR] All {retries} attempts failed for {url}", file=sys.stderr)
+    if last_error:
+        traceback.print_exception(type(last_error), last_error, last_error.__traceback__, file=sys.stderr)
+    return None
 
 
 async def scrape_bnk() -> list[dict]:
-    """BNK투자증권 리서치 리포트 스크래핑"""
     articles: list[dict] = []
 
-    async with aiohttp.ClientSession() as session:
-        tasks = [fetch_url(session, url) for url in BNK_URLS]
+    # TCPConnector with ssl=False to debug TLS issues
+    connector = aiohttp.TCPConnector(ssl=False, force_close=True)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        tasks = [fetch_url_verbose(session, url) for url in BNK_URLS]
         soups = await asyncio.gather(*tasks, return_exceptions=True)
 
         for board_order, (soup, url) in enumerate(zip(soups, BNK_URLS)):
@@ -77,15 +138,11 @@ async def scrape_bnk() -> list[dict]:
                 cells = row.find_all("td")
                 if len(cells) < 6:
                     continue
-
                 article_link = cells[1].find("a")
                 writer = cells[2].get_text(strip=True)
                 if not article_link:
                     continue
-
                 article_title = article_link.get_text(strip=True)
-
-                # onclick에서 첨부파일 URL 추출
                 onclick_attr = article_link.get("onclick", "")
                 match = re.search(
                     r"viewAction\(this, '\d+', '(/uploads/[^']+)', '([^']+)'\);",
@@ -93,12 +150,8 @@ async def scrape_bnk() -> list[dict]:
                 )
                 article_url = ""
                 if match:
-                    base_path = match.group(1)
-                    file_name = match.group(2)
-                    article_url = f"https://www.bnkfn.co.kr{base_path}/{file_name}"
-
+                    article_url = f"https://www.bnkfn.co.kr{match.group(1)}/{match.group(2)}"
                 reg_dt = cells[4].get_text(strip=True)
-
                 articles.append({
                     "sec_firm_order": 23,
                     "article_board_order": board_order,
@@ -118,11 +171,21 @@ async def scrape_bnk() -> list[dict]:
 
 
 def main():
-    print("[INFO] Starting BNK scraper on GitHub Actions...", file=sys.stderr)
-    articles = asyncio.run(scrape_bnk())
-    print(f"[INFO] Scraped {len(articles)} articles", file=sys.stderr)
+    print("[INFO] Starting BNK scraper diagnostics...", file=sys.stderr)
 
-    # 결과를 JSON으로 stdout 출력
+    # DNS/TCP/TLS 진단
+    print("\n=== DNS/TCP/TLS Diagnostics ===", file=sys.stderr)
+    for url in BNK_URLS:
+        from urllib.parse import urlparse
+        host = urlparse(url).hostname
+        result = diagnose_host(host)
+        print(f"  {host}: DNS={result.get('dns','?')} TCP={result.get('tcp','?')} TLS={result.get('tls','?')}", file=sys.stderr)
+
+    # 스크래핑 시도
+    print("\n=== Scraping Attempt ===", file=sys.stderr)
+    articles = asyncio.run(scrape_bnk())
+    print(f"\n[INFO] Scraped {len(articles)} articles", file=sys.stderr)
+
     output = {
         "scraped_at": datetime.now().isoformat(),
         "source": "github-actions",
