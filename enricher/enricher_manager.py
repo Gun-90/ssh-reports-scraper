@@ -198,7 +198,7 @@ class EnricherManager:
                     FROM {self.MAIN_TABLE}
                     WHERE (tags IS NULL OR tags = '[]'::jsonb OR tags = '[]')
                       AND article_title IS NOT NULL AND article_title != ''
-                    ORDER BY save_time DESC
+                    ORDER BY report_id
                     LIMIT %s
                     """,
                     (limit,),
