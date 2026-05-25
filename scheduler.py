@@ -97,21 +97,21 @@ scheduler.add_job(
     id="main_scraper_job"
 )
 
-# [스케줄 2] Enricher 배치: 매 시간 45분에 미처리 레포트 태그 추출 (limit=200)
+# [스케줄 2] Enricher 배치: 30분마다 500건씩 인프로세스 처리 (subprocess 충돌 없음)
 scheduler.add_job(
     run_enricher_batch,
-    CronTrigger(minute=45, jitter=120),
-    kwargs={"limit": 200},
+    CronTrigger(minute='*/30', jitter=120),
+    kwargs={"limit": 500},
     id="enricher_batch_job"
 )
 
-# [스케줄 3] Enricher 고속 백필: 5분마다 30,000건씩 (~3분 소요)
-scheduler.add_job(
-    run_enricher_backfill,
-    CronTrigger(minute='*/5', jitter=30),
-    kwargs={"batch_size": 30000, "batches": 1},
-    id="enricher_backfill_job"
-)
+# [스케줄 3] Enricher subprocess 백필: 동시실행 충돌로 비활성화
+# scheduler.add_job(
+#     run_enricher_backfill,
+#     CronTrigger(minute='*/5', jitter=30),
+#     kwargs={"batch_size": 30000, "batches": 1},
+#     id="enricher_backfill_job"
+# )
 
 # [스케줄 2] AI 요약: 일단 주석 처리 (필요 시 해제)
 """
