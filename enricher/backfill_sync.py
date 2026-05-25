@@ -75,18 +75,17 @@ def run_backfill(batch_size: int = 5000, max_batches: int = 0):
 
         try:
             with conn.cursor() as cur:
-                # SELECT에만 30초 타임아웃 + 락 걸린 row 5초 대기 후 건너뛰기
+                # SELECT에만 30초 타임아웃
                 cur.execute("SET statement_timeout = '30s'")
-                cur.execute("SET lock_timeout = '5s'")
 
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(SELECT_SQL + " FOR UPDATE SKIP LOCKED", (batch_size,))
+                cur.execute(SELECT_SQL, (batch_size,))
                 rows = [dict(r) for r in cur.fetchall()]
 
-            # SELECT 완료 후 타임아웃 해제
+            # SELECT 완료 후 statement_timeout 해제, UPDATE는 lock_timeout만
             with conn.cursor() as cur:
                 cur.execute("SET statement_timeout = 0")
-                cur.execute("SET lock_timeout = 0")
+                cur.execute("SET lock_timeout = '3s'")
 
             if not rows:
                 print(f"[backfill] ✅ 완료 - 더 이상 미처리 레포트 없음")
@@ -103,12 +102,15 @@ def run_backfill(batch_size: int = 5000, max_batches: int = 0):
                 stocks_json = json.dumps(result["stock_names"], ensure_ascii=False)
                 sector_val = result["sector"] or ""
 
-                with conn.cursor() as cur:
-                    cur.execute(UPDATE_SQL, (tags_json, stocks_json, sector_val, row["report_id"]))
-
-                processed_this_batch += 1
-                if result["tags"] or result["stock_names"] or result["sector"]:
-                    total_enriched += 1
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(UPDATE_SQL, (tags_json, stocks_json, sector_val, row["report_id"]))
+                    processed_this_batch += 1
+                    if result["tags"] or result["stock_names"] or result["sector"]:
+                        total_enriched += 1
+                except Exception:
+                    # 락 타임아웃 등 일시적 실패는 건너뛰고 다음 배치에서 재시도
+                    pass
 
         finally:
             conn.close()
