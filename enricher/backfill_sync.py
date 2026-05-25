@@ -39,7 +39,7 @@ SELECT_SQL = """
     FROM tbl_sec_reports
     WHERE (tags IS NULL OR tags = '[]'::jsonb OR tags = '[]')
       AND article_title IS NOT NULL AND article_title != ''
-    ORDER BY save_time DESC
+    ORDER BY report_id
     LIMIT %s
 """
 
