@@ -56,7 +56,6 @@ class PostgreSQLManager:
         self.user = os.getenv("POSTGRES_USER", "ssh_reports_hub")
         self.password = os.getenv("POSTGRES_PASSWORD", "")
         self.main_table_name = self.MAIN_TABLE
-        self._last_inserted_keys = []  # enricher 연동: 새로 insert된 key 목록
 
     def get_connection(self):
         return psycopg2.connect(
@@ -173,11 +172,10 @@ class PostgreSQLManager:
                 download_url        = COALESCE(NULLIF(EXCLUDED.download_url,\'\\'),  {table_name}.download_url),
                 telegram_url        = COALESCE(NULLIF(EXCLUDED.telegram_url,\'\\'), {table_name}.telegram_url),
                 pdf_url             = COALESCE(NULLIF(EXCLUDED.pdf_url,\'\\'),       {table_name}.pdf_url)
-            RETURNING key, (xmax = 0) AS inserted
+            RETURNING (xmax = 0) AS inserted
         '''
 
         inserted = updated = 0
-        new_keys = []
         conn = self.get_connection()
         try:
             with conn:
@@ -185,17 +183,14 @@ class PostgreSQLManager:
                     for start in range(0, len(records), 1000):
                         chunk = records[start:start + 1000]
                         psycopg2.extras.execute_values(cur, sql, chunk, page_size=len(chunk))
-                        for (key_val, is_insert) in cur.fetchall():
+                        for (is_insert,) in cur.fetchall():
                             if is_insert:
                                 inserted += 1
-                                if key_val:
-                                    new_keys.append(key_val)
                             else:
                                 updated += 1
         finally:
             conn.close()
 
-        self._last_inserted_keys = new_keys
         logger.info(f"PostgreSQL Data inserted: {inserted} rows, updated: {updated} rows.")
         return inserted, updated
 
@@ -346,33 +341,6 @@ class PostgreSQLManager:
         WHERE report_id=%s
         """
         return self._execute(sql, (summary, datetime.now().isoformat(), model_name, record_id))
-
-    async def update_report_tags(self, report_id, tags, stock_names, sector):
-        """레포트에 추출된 태그/종목명/산업 정보를 업데이트합니다."""
-        import json as _json
-        sql = f"""
-        UPDATE {self.main_table_name}
-        SET tags=%s, stock_names=%s, sector=%s
-        WHERE report_id=%s
-        """
-        return self._execute(sql, (
-            _json.dumps(tags, ensure_ascii=False),
-            _json.dumps(stock_names, ensure_ascii=False),
-            sector or "",
-            report_id,
-        ))
-
-    async def fetch_pending_tag_reports(self, limit=10):
-        """태그가 없는 (tags가 '[]' 또는 NULL) 레포트 목록을 조회합니다."""
-        sql = f"""
-        SELECT report_id, firm_nm, article_title, writer
-        FROM {self.main_table_name}
-        WHERE (tags IS NULL OR tags = '[]'::jsonb OR tags = '[]')
-          AND article_title IS NOT NULL AND article_title != ''
-        ORDER BY save_time DESC
-        LIMIT %s
-        """
-        return self._fetchall(sql, (limit,))
 
     async def fetch_pending_summary_reports(self, limit=10):
         sql = f"""
