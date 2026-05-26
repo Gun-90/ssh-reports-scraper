@@ -86,17 +86,17 @@ class PostgreSQLManager:
             conn = self.get_keyword_connection()
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT to_regclass('tbm_sec_reports_alert_keywords')
+                    SELECT to_regclass('tbl_sec_reports_alert_keywords')
                 """)
                 table_exists = cur.fetchone()[0]
                 if not table_exists:
-                    logger.warning("Keyword table tbm_sec_reports_alert_keywords does not exist. Returning empty keyword set.")
+                    logger.warning("Keyword table tbl_sec_reports_alert_keywords does not exist. Returning empty keyword set.")
                     return {}
 
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     SELECT user_id, keyword, created_at
-                    FROM tbm_sec_reports_alert_keywords
+                    FROM tbl_sec_reports_alert_keywords
                     WHERE is_active = true
                     ORDER BY user_id, created_at ASC
                 """)

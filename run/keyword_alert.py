@@ -21,6 +21,20 @@ INTERVAL = int(os.getenv('INTERVAL', '1800'))
 
 pg_manager = PostgreSQLManager()
 
+def _validate_config():
+    """서비스 시작 전 필수 환경변수 검증"""
+    if not TOKEN:
+        raise RuntimeError(
+            "TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET is not set. "
+            "Please set a valid Telegram bot token from https://t.me/Botfather"
+        )
+    # 간단한 토큰 형식 검증 (숫자:영숫자)
+    if ':' not in TOKEN or not TOKEN.split(':')[0].isdigit():
+        raise RuntimeError(
+            f"TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET has invalid format. "
+            "Expected format: <bot_id>:<secret_hash> (from https://t.me/Botfather)"
+        )
+
 async def run_once():
     logger.info("Fetching keywords from PostgreSQL...")
     try:
@@ -53,6 +67,7 @@ async def run_once():
                 logger.error(f"Error processing '{keyword}' for {user_id}: {e}")
 
 async def main():
+    _validate_config()
     logger.info("Starting User Report Keyword Alert Service...")
     if os.getenv('RUN_ONCE', 'false').lower() == 'true':
         await run_once()
