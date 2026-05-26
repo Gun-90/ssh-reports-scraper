@@ -11,6 +11,7 @@ services:
     volumes:
       - ~/logs:/log
       - ~/sqlite3:/app/db
+      - ~/secrets/ssh-reports-scraper:/home/appuser/secrets/ssh-reports-scraper:ro
     environment:
       - APP_ENV=${APP_ENV:-prod}
       - TZ=Asia/Seoul
