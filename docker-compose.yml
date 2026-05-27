@@ -19,6 +19,7 @@ services:
       - LOG_FILE=/log/logfile.log
       - SQLITE_DB_PATH=/app/db/telegram.db
       - SOCKS_PROXY_URL=socks5h://localhost:9091
+      - SCRAPER_STALE_OVERRIDES=${SCRAPER_STALE_OVERRIDES:-TOSSinvest_checkNewArticle=30}
     stdin_open: true
     tty: true
     logging:

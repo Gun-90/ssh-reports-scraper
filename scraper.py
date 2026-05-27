@@ -53,6 +53,19 @@ chat_id = os.getenv('TELEGRAM_CHANNEL_ID_REPORT_ALARM')
 SCRAPER_STALE_DAYS = int(os.getenv("SCRAPER_STALE_DAYS", "5"))
 SCRAPER_HEALTH_ERRORS = []
 
+# 모듈별 stale 임계값 오버라이드 (예: "TOSSinvest_checkNewArticle=30,OtherScraper=14")
+_STALE_OVERRIDES = {}
+_raw_overrides = os.getenv("SCRAPER_STALE_OVERRIDES", "")
+if _raw_overrides:
+    for pair in _raw_overrides.split(","):
+        pair = pair.strip()
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            try:
+                _STALE_OVERRIDES[k.strip()] = int(v.strip())
+            except ValueError:
+                pass
+
 
 def log_scraper_health(name, rows):
     if not isinstance(rows, list):
@@ -84,11 +97,12 @@ def log_scraper_health(name, rows):
 
     try:
         max_date = datetime.datetime.strptime(max_reg_dt, "%Y%m%d").date()
-        stale_cutoff = datetime.datetime.now().date() - datetime.timedelta(days=SCRAPER_STALE_DAYS)
+        stale_days = _STALE_OVERRIDES.get(name, SCRAPER_STALE_DAYS)
+        stale_cutoff = datetime.datetime.now().date() - datetime.timedelta(days=stale_days)
         if max_date < stale_cutoff:
             msg = (
                 f"{name} latest reg_dt is stale: {max_reg_dt} "
-                f"(older than {SCRAPER_STALE_DAYS} days)"
+                f"(older than {stale_days} days)"
             )
             SCRAPER_HEALTH_ERRORS.append(msg)
             logger.error(msg)

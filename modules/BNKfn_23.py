@@ -1,31 +1,65 @@
 from loguru import logger
 import os
-import gc
-import aiohttp
-import asyncio
+import time
 import re
+import requests
+import urllib3
 from datetime import datetime
-
 from bs4 import BeautifulSoup
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.FirmInfo import FirmInfo
-from models.WebScraper import AsyncWebScraper
 from models.ConfigManager import config
 
-async def BNK_checkNewArticle():
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# WARP SOCKS5 프록시 설정
+SOCKS_PROXY = os.getenv("SOCKS_PROXY_URL", "socks5h://localhost:9091")
+PROXIES = {
+    'http': SOCKS_PROXY,
+    'https': SOCKS_PROXY,
+}
+BNK_DIRECT_RETRIES = int(os.getenv("BNK_DIRECT_RETRIES", "2"))
+BNK_WARP_RETRIES = int(os.getenv("BNK_WARP_RETRIES", "3"))
+
+
+def _fetch_url(url, headers, use_warp=False):
+    """직접 혹은 WARP 프록시로 URL 요청 (HTML 반환)"""
+    kwargs = dict(headers=headers, verify=False, timeout=30)
+    if use_warp:
+        kwargs['proxies'] = PROXIES
+        kwargs['timeout'] = 45
     try:
-        return await _BNK_checkNewArticle_impl()
-    except Exception as e:
-        logger.debug(f"BNK connection error (suppressed): {e}")
-        return []
+        resp = requests.get(url, **kwargs)
+        resp.raise_for_status()
+        return resp.text
+    except Exception:
+        return None
 
-async def _BNK_checkNewArticle_impl():
+
+def _fetch_url_with_retry(url, headers):
+    """직접 → WARP 순서로 요청 재시도"""
+    for attempt in range(1, BNK_DIRECT_RETRIES + 1):
+        html = _fetch_url(url, headers)
+        if html:
+            return html
+        if attempt < BNK_DIRECT_RETRIES:
+            time.sleep(attempt)
+    logger.warning(f"BNK: 직접 연결 실패, WARP 프록시로 재시도: {url}")
+    for attempt in range(1, BNK_WARP_RETRIES + 1):
+        html = _fetch_url(url, headers, use_warp=True)
+        if html:
+            logger.success(f"BNK: WARP 경유 성공: {url}")
+            return html
+        if attempt < BNK_WARP_RETRIES:
+            time.sleep(attempt)
+    return None
+
+
+def BNK_checkNewArticle():
     sec_firm_order = 23
-
     TARGET_URL_TUPLE = config.get_urls("BNKfn_23")
-
     json_data_list = []
 
     headers = {
@@ -36,38 +70,33 @@ async def _BNK_checkNewArticle_impl():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     }
 
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            AsyncWebScraper(url, headers=headers).Get(session=session, retries=5, silent_retries=5)
-            for url in TARGET_URL_TUPLE
-        ]
-        soups = await asyncio.gather(*tasks, return_exceptions=True)
+    for article_board_order, url in enumerate(TARGET_URL_TUPLE):
+        try:
+            html = _fetch_url_with_retry(url, headers)
+            if not html:
+                logger.warning(f"BNK: 최종 요청 실패: {url}")
+                continue
 
-        for article_board_order, (soup, url) in enumerate(zip(soups, TARGET_URL_TUPLE)):
-            if isinstance(soup, Exception):
-                logger.debug(f"BNK request final failure for {url}: {soup}")
+            soup = BeautifulSoup(html, "html.parser")
+            table = soup.find("table", class_="table01")
+
+            if not table:
+                logger.warning(f"BNK: Table 'table01' not found in {url}")
                 continue
-            if soup is None:
-                continue
+
+            rows = table.select("tbody tr")
+            logger.info(f"BNK: {url} → {len(rows)}개 행 발견")
 
             firm_info = FirmInfo(
                 sec_firm_order=sec_firm_order,
                 article_board_order=article_board_order
             )
-            table = soup.find("table", class_="table01")
-
-            if not table:
-                logger.warning(f"Table not found in {url}")
-                continue
-
-            rows = table.select("tbody tr")
 
             for row in rows:
                 cells = row.find_all("td")
                 if len(cells) < 6:
-                    continue  # Skip rows with insufficient data
+                    continue
 
-                # article_title 및 article_url 추출
                 article_link = cells[1].find("a")
                 writer = cells[2].get_text(strip=True)
                 if not article_link:
@@ -75,7 +104,6 @@ async def _BNK_checkNewArticle_impl():
 
                 article_title = article_link.get_text(strip=True)
 
-                # onclick에서 첨부파일 URL 추출
                 onclick_attr = article_link.get("onclick", "")
                 match = re.search(r"viewAction\(this, '\d+', '(/uploads/[^']+)', '([^']+)'\);", onclick_attr)
                 article_url = ""
@@ -100,13 +128,18 @@ async def _BNK_checkNewArticle_impl():
                     "key": article_url
                 })
 
-        # 메모리 정리
-        gc.collect()
+            time.sleep(0.5)
+
+        except Exception as e:
+            logger.error(f"BNK: 예외 발생 ({url}): {e}")
+
+    if not json_data_list:
+        logger.error(f"BNK: 모든 URL({len(TARGET_URL_TUPLE)}개)에서 0건 수집. 사이트 접근 불가 또는 구조 변경 확인 필요.")
 
     return json_data_list
 
-# 비동기 함수 실행
+
 if __name__ == "__main__":
-    articles = asyncio.run(BNK_checkNewArticle())
+    articles = BNK_checkNewArticle()
     for article in articles:
         logger.debug(article)

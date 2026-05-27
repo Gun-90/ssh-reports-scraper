@@ -147,7 +147,16 @@ async def DBfi_checkNewArticle():
     # 2. 우리 DB 전체에서 중복 제거
     db = get_db()
     existing_keys = db.fetch_existing_keys(sec_firm_order, days_limit=None)
-    logger.info(f"DBfi: DB 전체 기존 key {len(existing_keys)}개 확인")
+    # 도메인 변경 대응: m.db-fi.com → m.dbsec.co.kr 양쪽 키 모두 허용
+    BASE_URL_LEGACY = "https://m.db-fi.com"
+    _normalized = set(existing_keys)
+    for k in existing_keys:
+        if BASE_URL_LEGACY in k:
+            _normalized.add(k.replace(BASE_URL_LEGACY, BASE_URL))
+        elif BASE_URL in k:
+            _normalized.add(k.replace(BASE_URL, BASE_URL_LEGACY))
+    existing_keys = _normalized
+    logger.info(f"DBfi: DB 전체 기존 key {len(existing_keys)}개 확인 (정규화 포함)")
 
     candidates = []
     for item, board_order in raw_items:
