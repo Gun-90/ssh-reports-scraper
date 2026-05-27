@@ -69,30 +69,36 @@ PostgreSQL (tbl_sec_reports)      ← DB_BACKEND=postgres (운영 중)
   - [x] 2026-04-21 `DB_BACKEND=postgres` 운영 전환 및 안정화 완료
   - [x] 2026-04-24 DS투자증권 `TELEGRAM_URL`은 PostgreSQL trigger로 자동 보정
   - [x] 2026-04-26 URL 컬럼 정규화 (`ATTACH_URL` 코드 전수 제거) 완료
-  - [ ] PostgreSQL V2 소문자 스키마 검증 진행 중 (`docs/postgresql-v2.md`)
+  - [x] PostgreSQL 스키마 소문자 표준화 완료 (2026-04-28)
 
-### ADR-004-D: URL 컬럼 의미 정규화 및 ATTACH_URL 제거
-- **상태:** 완료 (2026-04-26)
-- **배경:** `ATTACH_URL`이 모듈별로 모호하게 사용되어 메시지 발송 및 다운로드 로직에서 충돌 발생
-- **결정:** 전체 28개 스크래퍼 모듈 및 DB Manager에서 `ATTACH_URL` 참조 전면 제거
-- **결과:** `TELEGRAM_URL`(대표), `PDF_URL`(파일), `ARTICLE_URL`(상세) 삼각 체계로 정규화 완료
-- **문서:** [URL Column Semantics](url-semantics.md)
+  ### ADR-004-D: URL 컬럼 의미 정규화 및 ATTACH_URL 제거
+  - **상태:** 완료 (2026-04-26)
+  - **배경:** `ATTACH_URL`이 모듈별로 모호하게 사용되어 메시지 발송 및 다운로드 로직에서 충돌 발생
+  - **결정:** 전체 28개 스크래퍼 모듈 및 DB Manager에서 `ATTACH_URL` 참조 전면 제거
+  - **결과:** `TELEGRAM_URL`(대표), `PDF_URL`(파일), `ARTICLE_URL`(상세) 삼각 체계로 정규화 완료
+  - **문서:** [URL Column Semantics](url-semantics.md)
 
-### ADR-004-E: DBfi endpoint 외부화
-- **상태:** 완료 (2026-04-26)
-- **배경:** DBfi 스크래퍼의 API 조합 규칙이 코드에 노출되어 Ghost Mode 원칙 위배
-- **결정:** 모든 endpoint 조합 규칙을 `secrets.json`으로 이관하고 관련 히스토리 정리 완료
+  ### ADR-004-F: PostgreSQL 스키마 소문자 표준화
+  - **상태:** 완료 (2026-04-28)
+  - **배경:** PostgreSQL의 기본 동작(unquoted identifier = lowercase)과 대문자 따옴표 정책 간의 충돌 해결
+  - **결정:** 모든 테이블/컬럼명을 소문자로 전환하고 SQL 파일 및 코드 내 따옴표 제거
 
----
+  ### ADR-007: 데이터 Enricher 파이프라인 통합
+  - **상태:** 완료 (2026-05-25)
+  - **배경:** 수집된 리포트의 텍스트 기반 태그/섹터 자동 추출 필요성 증대
+  - **결정:** 수집 완료 후 비동기적으로 작동하는 `enricher` 모듈을 통합하여 데이터 부가가치 향상
+  - **결과:** 약 30K건의 백필 처리 완료 및 실시간 추출 가동 중
 
-## 작업 우선순위
+  ---
 
-- [x] **인프라** PostgreSQL 운영 전환 및 데이터 정합성 검증 (100%)
-- [x] **ADR-004-D** URL 컬럼 정규화 1차 (`ATTACH_URL` 코드 전수 제거)
-- [x] **ADR-004-E** DBfi endpoint 전체 외부화
-- [x] **LS 로직 강화** PDF 탐색 범위 확대 (+/- 10일) 및 Fallback URL 복구 가동
-- [ ] **ADR-004-B** PostgreSQL Manager 책임 추가 통합
-- [ ] **ADR-005** PostgREST 배포 + 프론트엔드 엔드포인트 교체
-- [ ] **ADR-005** Oracle ATP 제거
-- [ ] **ADR-006** pytest 기반 테스트 코드 도입
-- [ ] **운영 표준화** secrets/env 생성 및 CI/CD 호출 방식 통일 ([Secrets / Env Standardization TODO](secrets-env-standardization.md))
+  ## 작업 우선순위
+
+  - [x] **인프라** PostgreSQL 운영 전환 및 데이터 정합성 검증 (100%)
+  - [x] **ADR-004-D** URL 컬럼 정규화 1차 (`ATTACH_URL` 코드 전수 제거)
+  - [x] **ADR-004-F** PostgreSQL 스키마 소문자 표준화
+  - [x] **ADR-007** 데이터 Enricher 엔진 통합 (태그/섹터 추출)
+  - [x] **LS 로직 강화** PDF 탐색 범위 확대 (+/- 10일) 및 Fallback URL 복구 가동
+  - [ ] **인프라 고도화** 특정 증권사(BNK 등) 차단 우회를 위한 WARP SOCKS5 프록시 적용
+  - [ ] **ADR-005** PostgREST 배포 + 프론트엔드 엔드포인트 교체
+  - [ ] **ADR-006** pytest 기반 테스트 코드 도입
+  - [ ] **운영 표준화** secrets/env 생성 및 CI/CD 호출 방식 통일 ([Secrets / Env Standardization TODO](secrets-env-standardization.md))

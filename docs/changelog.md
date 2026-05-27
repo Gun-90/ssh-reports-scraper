@@ -6,6 +6,30 @@
 
 ## 운영 변경 기록
 
+### 2026-05-27 — Scraper Health Check 긴급 대응 (DBfi, BNK, TOSS)
+
+- **DBfi 도메인 마이그레이션**: DB금융투자 API 도메인이 `m.db-fi.com` → `m.dbsec.co.kr`로 변경됨.
+  - `secrets.json`의 `DBfi_19.base_url`을 새 도메인으로 업데이트.
+  - `aiohttp` POST 요청이 302 redirect를 자동 추적하지 않아 빈 응답 → 0건 수집 버그 발생했었음.
+  - 기존 DB 키(old domain) ↔ 신규 키(new domain) 정규화 로직 추가로 중복 삽입 방지.
+- **BNKfn WARP 프록시 지원**: `www.bnkfn.co.kr`이 스크래퍼 서버에서 TCP unreachable → SOCKS5 WARP 프록시 경유로 우회.
+  - `BNKfn_23.py`를 `aiohttp` 기반에서 `requests` + SOCKS5 프록시(직접→WARP fallback)로 재작성.
+  - 에러 로깅 레벨 `DEBUG`(무음) → `ERROR`로 상향. 0건 수집 시 명시적 경고 출력.
+- **TOSSinvest stale 임계값 오버라이드**: TOSSinvest는 게시 주기가 느려(최신 2026-05-11) 기본 5일 임계값에 걸려 health check 실패.
+  - `SCRAPER_STALE_OVERRIDES` 환경변수 도입 → 모듈별 stale day 임계값 지정 가능.
+  - `TOSSinvest_checkNewArticle=30`으로 설정 (30일까지 허용).
+- `SCRAPER_STALE_OVERRIDES` 파싱 로직을 `scraper.py`에 추가, `log_scraper_health`에서 모듈별 오버라이드 적용.
+
+### 2026-05-25~26 — Enricher 통합 + BNK Actions + 배포 경로 정비
+
+- **Enricher 엔진 통합**: `insert` 완료 후 자동 태그/섹터 추출 파이프라인 추가 (`enricher/` 패키지).
+  - 고속 동기식 backfill + 유휴시간(20시~06시) 대량 배치로 약 30K건/5분 처리.
+  - PostgreSQL 락 경합 해소: `FOR UPDATE SKIP LOCKED` → `ORDER BY report_id` → 개별 `try/except` 순차 최적화.
+- **GitHub Actions BNK 스크래퍼**: IP 차단 우회를 위한 standalone BNK 스크래퍼 Actions workflow 추가.
+- **배포 경로 이전**: `~/prod/` → `~/workspace/external.reports-hub/apps/backend/`로 이전, `deploy.yml` fallback 경로 수정 및 `APP_ENV` 기본값 `dev→prod`.
+- **테이블명 정규화**: `tbm_sec_reports_alert_keywords` → `tbl_sec_reports_alert_keywords`로 통일.
+- **Enricher tags/sector 모듈 revert**: 별도 레포로 분리 예정.
+
 ### 2026-04-28 — PostgreSQL 스키마 소문자 정규화 및 V2 통합
 
 - **PostgreSQL 스키마 소문자 표준화**: PostgreSQL의 기본 동작(unquoted identifier = lowercase)에 맞춰 모든 테이블명과 컬럼명을 소문자로 전환했습니다.
