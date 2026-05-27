@@ -98,7 +98,7 @@ PostgreSQL (tbl_sec_reports)      ← DB_BACKEND=postgres (운영 중)
   - [x] **ADR-004-F** PostgreSQL 스키마 소문자 표준화
   - [x] **ADR-007** 데이터 Enricher 엔진 통합 (태그/섹터 추출)
   - [x] **LS 로직 강화** PDF 탐색 범위 확대 (+/- 10일) 및 Fallback URL 복구 가동
-  - [ ] **인프라 고도화** 특정 증권사(BNK 등) 차단 우회를 위한 WARP SOCKS5 프록시 적용
-  - [ ] **ADR-005** PostgREST 배포 + 프론트엔드 엔드포인트 교체
-  - [ ] **ADR-006** pytest 기반 테스트 코드 도입
-  - [ ] **운영 표준화** secrets/env 생성 및 CI/CD 호출 방식 통일 ([Secrets / Env Standardization TODO](secrets-env-standardization.md))
+  - [x] **인프라 고도화** 특정 증권사(BNK 등) 차단 우회를 위한 WARP SOCKS5 프록시 적용
+  - [x] **ADR-005** PostgREST 배포 + 프론트엔드 엔드포인트 교체
+  - [x] **ADR-006** pytest 기반 테스트 코드 도입 (Makefile 연동 완료)
+  - [x] **운영 표준화** secrets/env 생성 및 CI/CD 호출 방식 통일 (Makefile 및 secrets-env-standardization.md 가이드 완료)
