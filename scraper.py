@@ -336,16 +336,16 @@ async def main(date_str=None):
             ins, upd = db.insert_json_data_list(total_list)
             logger.success(f"DB Sync: {ins} new, {upd} updated.")
             
-            # 새로 insert된 레포트 자동 태그 추출 (enricher)
-            new_keys = getattr(db, '_last_inserted_keys', [])
-            if new_keys:
-                try:
-                    from enricher import EnricherManager
-                    enricher = EnricherManager(db_manager=db)
-                    enrich_result = enricher.enrich_by_keys(new_keys)
-                    logger.info(f"[Enricher] {enrich_result['enriched']}/{len(new_keys)} enriched")
-                except Exception as e:
-                    logger.warning(f"[Enricher] skipped (non-critical): {e}")
+            # 새로 insert된 레포트 자동 태그 추출 (enricher) -> 최적화 실패로 인한 일시 주석 처리
+            # new_keys = getattr(db, '_last_inserted_keys', [])
+            # if new_keys:
+            #     try:
+            #         from enricher import EnricherManager
+            #         enricher = EnricherManager(db_manager=db)
+            #         enrich_result = enricher.enrich_by_keys(new_keys)
+            #         logger.info(f"[Enricher] {enrich_result['enriched']}/{len(new_keys)} enriched")
+            #     except Exception as e:
+            #         logger.warning(f"[Enricher] skipped (non-critical): {e}")
             
             # DB 삽입 후 잠시 대기하여 트리거/커밋이 확실히 반영되도록 함
             await asyncio.sleep(1)

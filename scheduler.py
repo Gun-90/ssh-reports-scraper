@@ -33,46 +33,48 @@ def run_scraper():
         logger.error(f"Execution Error: {e}")
     logger.info("--- [Job End] Main Scraper ---")
 
-def run_enricher_batch(limit=200):
-    """Enricher 배치 실행 - 태그 없는 과거 레포트 태그 추출 (주간 catch-up)"""
-    logger.info(f"--- [Job Start] Enricher Batch (limit={limit}) ---")
-    try:
-        from enricher import EnricherManager
-        enricher = EnricherManager()
-        result = enricher.enrich_pending(limit=limit)
-        logger.info(
-            f"[Enricher] batch 완료: total={result['total']}, "
-            f"enriched={result['enriched']}, errors={result['errors']}"
-        )
-    except Exception as e:
-        logger.error(f"[Enricher] batch failed: {e}")
-    logger.info("--- [Job End] Enricher Batch ---")
+# 최적화 실패로 인한 일시 주석 처리
+# def run_enricher_batch(limit=200):
+#     """Enricher 배치 실행 - 태그 없는 과거 레포트 태그 추출 (주간 catch-up)"""
+#     logger.info(f"--- [Job Start] Enricher Batch (limit={limit}) ---")
+#     try:
+#         from enricher import EnricherManager
+#         enricher = EnricherManager()
+#         result = enricher.enrich_pending(limit=limit)
+#         logger.info(
+#             f"[Enricher] batch 완료: total={result['total']}, "
+#             f"enriched={result['enriched']}, errors={result['errors']}"
+#         )
+#     except Exception as e:
+#         logger.error(f"[Enricher] batch failed: {e}")
+#     logger.info("--- [Job End] Enricher Batch ---")
 
-def run_enricher_backfill(batch_size=30000, batches=1):
-    """Enricher 고속 백필 - 5분마다 3만건씩 처리 (~3분 소요)"""
-    logger.info(f"--- [Job Start] Enricher Backfill ({batch_size}건 x {batches}배치) ---")
-    try:
-        result = subprocess.run(
-            ["uv", "run", "enricher/backfill_sync.py", str(batch_size), str(batches)],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=600,  # 10분 타임아웃
-        )
-        if result.returncode != 0:
-            logger.error(f"[Enricher] backfill exited with code {result.returncode}")
-            if result.stderr:
-                logger.error(f"[Enricher] stderr:\n{result.stderr}")
-        else:
-            # 마지막 줄만 요약 출력
-            for line in result.stdout.strip().split('\n'):
-                if '완료' in line or '평균' in line or '미처리' in line:
-                    logger.info(f"[Enricher] {line.strip()}")
-    except subprocess.TimeoutExpired:
-        logger.error("[Enricher] backfill timed out (30min)")
-    except Exception as e:
-        logger.error(f"[Enricher] backfill failed: {e}")
-    logger.info("--- [Job End] Enricher Backfill ---")
+# 최적화 실패로 인한 일시 주석 처리
+# def run_enricher_backfill(batch_size=30000, batches=1):
+#     """Enricher 고속 백필 - 5분마다 3만건씩 처리 (~3분 소요)"""
+#     logger.info(f"--- [Job Start] Enricher Backfill ({batch_size}건 x {batches}배치) ---")
+#     try:
+#         result = subprocess.run(
+#             ["uv", "run", "enricher/backfill_sync.py", str(batch_size), str(batches)],
+#             capture_output=True,
+#             text=True,
+#             check=False,
+#             timeout=600,  # 10분 타임아웃
+#         )
+#         if result.returncode != 0:
+#             logger.error(f"[Enricher] backfill exited with code {result.returncode}")
+#             if result.stderr:
+#                 logger.error(f"[Enricher] stderr:\n{result.stderr}")
+#         else:
+#             # 마지막 줄만 요약 출력
+#             for line in result.stdout.strip().split('\n'):
+#                 if '완료' in line or '평균' in line or '미처리' in line:
+#                     logger.info(f"[Enricher] {line.strip()}")
+#     except subprocess.TimeoutExpired:
+#         logger.error("[Enricher] backfill timed out (30min)")
+#     except Exception as e:
+#         logger.error(f"[Enricher] backfill failed: {e}")
+#     logger.info("--- [Job End] Enricher Backfill ---")
 
 def run_ai_summary(limit):
     """AI 요약 배치 실행 (현재 미사용 - 주석 처리용)"""
@@ -97,13 +99,13 @@ scheduler.add_job(
     id="main_scraper_job"
 )
 
-# [스케줄 2] Enricher 배치: 15분마다 2000건 인프로세스 (~28만건/35시간)
-scheduler.add_job(
-    run_enricher_batch,
-    CronTrigger(minute='*/15', jitter=60),
-    kwargs={"limit": 2000},
-    id="enricher_batch_job"
-)
+# [스케줄 2] Enricher 배치: 15분마다 2000건 인프로세스 (~28만건/35시간) -> 최적화 실패로 인한 일시 비활성화
+# scheduler.add_job(
+#     run_enricher_batch,
+#     CronTrigger(minute='*/15', jitter=60),
+#     kwargs={"limit": 2000},
+#     id="enricher_batch_job"
+# )
 
 # [스케줄 3] Enricher subprocess 백필: 동시실행 충돌로 비활성화
 # scheduler.add_job(
