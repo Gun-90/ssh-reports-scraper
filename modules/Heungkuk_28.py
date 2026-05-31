@@ -3,7 +3,7 @@ import gc
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -16,8 +16,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from models.ConfigManager import config
 from models.FirmInfo import FirmInfo
 
-
-BASE_URL = "https://www.heungkuksec.co.kr"
+# BASE_URL은 secrets.json의 첫 번째 URL에서 추출 (git에 URL 노출 방지)
+_urls_tmp = config.get_urls("Heungkuk_28")
+if _urls_tmp:
+    _p = urlparse(_urls_tmp[0])
+    BASE_URL = f"{_p.scheme}://{_p.netloc}"
+else:
+    BASE_URL = ""
 SEC_FIRM_ORDER = 28
 
 
