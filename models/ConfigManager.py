@@ -71,10 +71,13 @@ class ConfigManager:
     _urls_fallback = None
 
     def _load_urls_fallback(self):
-        """GitHub Actions 등 secrets.json 없는 환경용 — /tmp/scraper_urls.json 에서 로드"""
+        """GitHub Actions 등 secrets.json 없는 환경용 — repo config/urls.json 에서 로드"""
         if self._urls_fallback is not None:
             return
-        path = "/tmp/scraper_urls.json"
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config", "urls.json"
+        )
         try:
             if os.path.exists(path):
                 with open(path, 'r', encoding='utf-8') as f:

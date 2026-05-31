@@ -46,11 +46,6 @@ jobs:
           echo ""
           echo "================================"
 
-      - name: Setup scraper URLs config
-        env:
-          SCRAPER_URLS_JSON: ${{ secrets.SCRAPER_URLS_JSON }}
-        run: echo "${SCRAPER_URLS_JSON}" > /tmp/scraper_urls.json
-
       - name: Run all-firms standalone scraper
         id: scraper
         env:
