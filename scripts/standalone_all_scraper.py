@@ -80,6 +80,7 @@ IMPORT_MAP: dict[str, tuple[str, str, bool]] = {
     "IBKs_25":            ("modules.IBKs_25",            "IBK_checkNewArticle",               True),
     "SKS_26":             ("modules.SKS_26",             "Sks_checkNewArticle",               False),
     "Yuanta_27":          ("modules.Yuanta_27",          "Yuanta_checkNewArticle",            True),
+    "Heungkuk_28":        ("modules.Heungkuk_28",        "Heungkuk_checkNewArticle",           False),
 }
 
 # LS는 별도 처리하므로 제외 (하지만 테스트용으로 --firms 옵션으로 포함 가능)
