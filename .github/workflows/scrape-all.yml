@@ -1,0 +1,98 @@
+name: All-Firms Scraper (GitHub Actions IP)
+
+on:
+  schedule:
+    # 한국시간 평일 08:00~18:00, 30분 간격 (UTC 기준, LS와 5분 staggered)
+    # KST 08:05 = UTC 23:05 (전날), KST 18:05 = UTC 09:05
+    - cron: '5,35 23 * * 0-4'     # KST 월~금 08:05~08:35
+    - cron: '5,35 0-8 * * 1-5'    # KST 화~토 09:05~17:35
+    - cron: '5 9 * * 1-5'         # KST 화~토 18:05
+  workflow_dispatch:  # 수동 실행
+    inputs:
+      firms:
+        description: '특정 증권사만 실행 (쉼표 구분, 빈칸=전체)'
+        required: false
+        default: ''
+      timeout:
+        description: '비동기 함수 타임아웃(초)'
+        required: false
+        default: '120'
+
+jobs:
+  scrape-all:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Set up Python + dependencies
+        run: |
+          uv sync --frozen --no-cache
+
+      - name: Setup Chrome for Selenium (Koreainvestment)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq chromium-browser chromium-chromedriver 2>/dev/null || true
+          echo "Chrome: $(chromium-browser --version 2>/dev/null || google-chrome --version 2>/dev/null || echo 'not found')"
+          echo "ChromeDriver: $(chromedriver --version 2>/dev/null || echo 'not found')"
+
+      - name: Show runner IP info
+        run: |
+          echo "=== GitHub Actions Runner IP ==="
+          curl -s https://api.ipify.org
+          echo ""
+          echo "================================"
+
+      - name: Run all-firms standalone scraper
+        id: scraper
+        env:
+          # GitHub Actions에서는 DB 불필요 (sqlite fallback)
+          DB_BACKEND: sqlite
+          SQLITE_DB_PATH: /tmp/telegram_standalone.db
+          # GitHub Actions 클린 IP → 프록시 불필요
+          SOCKS_PROXY_URL: ''
+          # 스크래퍼 환경
+          TZ: Asia/Seoul
+          LOG_BASE_DIR: /tmp
+          SCRAPER_STALE_DAYS: '30'
+        run: |
+          FIRMS_ARG=""
+          if [ -n "${{ github.event.inputs.firms }}" ]; then
+            FIRMS_ARG="--firms ${{ github.event.inputs.firms }}"
+          fi
+          uv run python scripts/standalone_all_scraper.py \
+            $FIRMS_ARG \
+            --timeout ${{ github.event.inputs.timeout || 120 }} \
+            > /tmp/all_result.json 2>/tmp/all_log.txt
+          echo "=== Scraper Log ==="
+          cat /tmp/all_log.txt
+
+      - name: Upload scraped JSON as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-scraped-data
+          path: /tmp/all_result.json
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
+      - name: Show scraped data summary
+        run: |
+          echo "=== All-Firms Scraping Result ==="
+          python3 -c "
+          import json
+          with open('/tmp/all_result.json') as f:
+              data = json.load(f)
+          print(f'Total firms:    {data[\"total_firms\"]}')
+          print(f'Success:        {data[\"success_firms\"]}')
+          print(f'Failed:         {data[\"failed_firms\"]}')
+          print(f'Total articles: {data[\"total_articles\"]}')
+          print()
+          for firm in data['firms']:
+              status = '✓' if firm['status'] == 'success' else '✗'
+              err = f' ({firm.get(\"error\",\"\")[:50]})' if firm['status'] != 'success' else ''
+              print(f'  {status} {firm[\"name\"]}: {firm.get(\"count\",0)} articles{err}')
+          "

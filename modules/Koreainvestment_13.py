@@ -29,6 +29,9 @@ async def Koreainvestment_selenium_checkNewArticle():
 
     TARGET_URL_0 = config.get_urls("Koreainvestment_13")[0]
     
+    # 백필 등 고페이지 수집용 — KOREAMAX_PAGES 환경변수 (기본 10)
+    _max_pages = int(os.getenv("KOREAMAX_PAGES", "10"))
+
     CATEGORIES = [
         {"name": "전체", "board_order": 0, "script": None, "mkt_tp": "KR"},
         {"name": "미국 현지 리서치", "board_order": 10, "script": "onTab1Selected('stifel', 1);", "mkt_tp": "GLOBAL"}
@@ -41,18 +44,27 @@ async def Koreainvestment_selenium_checkNewArticle():
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--remote-allow-origins=*")
     chrome_options.add_argument("--disable-software-rasterizer")
-    
+
+    import platform as _plat
+    _is_arm = _plat.machine() in ("aarch64", "arm64")
+
     # 시스템에 설치된 chromedriver 우선 확인 (ARM64 호환성 해결)
     system_chromedriver = "/usr/bin/chromedriver"
-    system_chrome = "/usr/bin/chromium"
+    system_chrome = "/usr/bin/chromium-browser"
+    snap_chromedriver = "/snap/bin/chromium.chromedriver"
 
     if os.path.exists(system_chromedriver):
         logger.debug(f"KoreaInvestment Scraper: Using system chromedriver at {system_chromedriver}")
         service = Service(executable_path=system_chromedriver)
-        if os.path.exists(system_chrome):
-            chrome_options.binary_location = system_chrome
+    elif os.path.exists(snap_chromedriver):
+        logger.debug(f"KoreaInvestment Scraper: Using snap chromedriver at {snap_chromedriver}")
+        service = Service(executable_path=snap_chromedriver)
+    elif _is_arm:
+        # ARM64에서는 webdriver_manager 대신 시스템 패키지 필수
+        logger.warning("KoreaInvestment: ARM64 detected, trying default Service()")
+        service = Service()
     else:
-        # 도커 외부(로컬) 환경용
+        # x86_64 환경 (GitHub Actions 등) — webdriver_manager 사용
         try:
             logger.debug("KoreaInvestment Scraper: System chromedriver not found, trying ChromeDriverManager...")
             service = Service(ChromeDriverManager().install())
@@ -60,7 +72,10 @@ async def Koreainvestment_selenium_checkNewArticle():
             logger.error(f"Failed to install ChromeDriver: {e}")
             service = Service()
 
-    binary_paths = ["/usr/bin/chromium-browser", "/usr/bin/chromium", "/usr/bin/google-chrome"]
+    binary_paths = [
+        "/usr/bin/chromium-browser", "/usr/bin/chromium", "/usr/bin/google-chrome",
+        "/snap/bin/chromium",
+    ]
     for bp in binary_paths:
         if os.path.exists(bp):
             chrome_options.binary_location = bp
@@ -82,7 +97,7 @@ async def Koreainvestment_selenium_checkNewArticle():
                 driver.execute_script(cat["script"])
                 time.sleep(2)
 
-            for page in range(1, 11):
+            for page in range(1, _max_pages + 1):
                 if page > 1:
                     driver.execute_script(f"goPage({page});")
                     time.sleep(2)

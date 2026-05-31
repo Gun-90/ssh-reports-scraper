@@ -1,0 +1,64 @@
+name: LS Scraper (GitHub Actions IP)
+
+on:
+  schedule:
+    # 한국시간 평일 08:00~18:00, 30분 간격 (UTC 기준)
+    # KST 08:00 = UTC 23:00 (전날)
+    # KST 18:00 = UTC 09:00
+    - cron: '0,30 23 * * 0-4'     # KST 월~금 08:00~08:30
+    - cron: '0,30 0-8 * * 1-5'    # KST 화~토 09:00~17:30
+    - cron: '0 9 * * 1-5'         # KST 화~토 18:00
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  scrape-ls:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install aiohttp beautifulsoup4 requests urllib3
+
+      - name: Show runner IP info
+        run: |
+          echo "=== GitHub Actions Runner IP ==="
+          curl -s https://api.ipify.org
+          echo ""
+          echo "================================"
+
+      - name: Run LS standalone scraper
+        id: scraper
+        run: |
+          python3 scripts/standalone_ls_scraper.py --max-pages 2 --detail-concurrency 3 > /tmp/ls_result.json 2>/tmp/ls_log.txt
+          echo "=== Scraper Log ==="
+          cat /tmp/ls_log.txt
+
+      - name: Upload scraped JSON as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ls-scraped-data
+          path: /tmp/ls_result.json
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
+      - name: Show scraped data summary
+        run: |
+          echo "=== LS Scraping Result ==="
+          python3 -c "
+          import json
+          with open('/tmp/ls_result.json') as f:
+              data = json.load(f)
+          print(f'Total articles: {data[\"count\"]}')
+          print(f'Resolved URLs: {data.get(\"resolved_urls\", 0)}')
+          print(f'CDN resolved:  {data.get(\"cdn_resolved\", 0)}')
+          for a in data['articles'][:5]:
+              url_status = '✓' if a.get('telegram_url') else '✗'
+              print(f'  [{a[\"board_name\"]}] {a[\"article_title\"][:60]}... ({a[\"reg_dt\"]}) {url_status}')
+          "
