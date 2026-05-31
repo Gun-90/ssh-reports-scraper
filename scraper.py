@@ -22,6 +22,7 @@ from models.db_factory import get_db
 _EMERGENCY = os.getenv("EMERGENCY_SCRAPE", "0") == "1"
 
 if _EMERGENCY:
+    from modules.Koreainvestment_13 import Koreainvestment_selenium_checkNewArticle
     from modules.ShinHanInvest_1 import ShinHanInvest_checkNewArticle
     from modules.NHQV_2 import NHQV_checkNewArticle
     from modules.HANA_3 import HANA_checkNewArticle
@@ -263,6 +264,7 @@ async def _emergency_scrape(db):
         TOSSinvest_checkNewArticle, DS_checkNewArticle
     ]
     async_functions = [
+        Koreainvestment_selenium_checkNewArticle,
         ShinHanInvest_checkNewArticle, Leading_checkNewArticle,
         NHQV_checkNewArticle, HANA_checkNewArticle, KB_checkNewArticle,
         Sangsanginib_checkNewArticle, Kiwoom_checkNewArticle,

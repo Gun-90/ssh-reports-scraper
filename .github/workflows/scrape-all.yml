@@ -33,6 +33,12 @@ jobs:
         run: |
           uv sync --frozen --no-cache
 
+      - name: Setup Chrome for Selenium (Koreainvestment)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq chromium-browser chromium-chromedriver 2>/dev/null || true
+          echo "Chrome: $(chromium-browser --version 2>/dev/null || google-chrome --version 2>/dev/null || echo 'not found')"
+          echo "ChromeDriver: $(chromedriver --version 2>/dev/null || echo 'not found')"
+
       - name: Show runner IP info
         run: |
           echo "=== GitHub Actions Runner IP ==="
