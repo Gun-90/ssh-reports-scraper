@@ -46,15 +46,17 @@ jobs:
           echo ""
           echo "================================"
 
+      - name: Setup scraper URLs config
+        env:
+          SCRAPER_URLS_JSON: ${{ secrets.SCRAPER_URLS_JSON }}
+        run: echo "${SCRAPER_URLS_JSON}" > /tmp/scraper_urls.json
+
       - name: Run all-firms standalone scraper
         id: scraper
         env:
-          # GitHub Actions에서는 DB 불필요 (sqlite fallback)
           DB_BACKEND: sqlite
           SQLITE_DB_PATH: /tmp/telegram_standalone.db
-          # GitHub Actions 클린 IP → 프록시 불필요
           SOCKS_PROXY_URL: ''
-          # 스크래퍼 환경
           TZ: Asia/Seoul
           LOG_BASE_DIR: /tmp
           SCRAPER_STALE_DAYS: '30'
