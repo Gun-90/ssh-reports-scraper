@@ -23,9 +23,19 @@ async def main():
         logger.warning("수집된 아티클이 없습니다")
         return
 
+    # key 기준 중복 제거 (같은 아티클이 여러 페이지/카테고리에 등장 가능)
+    seen = set()
+    deduped = []
+    for a in articles:
+        k = a.get("key")
+        if k and k not in seen:
+            seen.add(k)
+            deduped.append(a)
+    logger.info(f"중복 제거: {len(articles)} → {len(deduped)}건")
+
     db = get_db()
-    ins, upd = db.insert_json_data_list(articles)
-    logger.success(f"DB import: {ins} inserted, {upd} updated, {len(articles) - ins - upd} skipped")
+    ins, upd = db.insert_json_data_list(deduped)
+    logger.success(f"DB import: {ins} inserted, {upd} updated, {len(deduped) - ins - upd} skipped")
     logger.info("=== 백필 완료 ===")
 
 if __name__ == "__main__":
