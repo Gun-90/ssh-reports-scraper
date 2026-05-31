@@ -68,23 +68,6 @@ class ConfigManager:
         if val: return val
         return self._secrets.get("common", {}).get(key, default)
 
-    _urls_fallback = None
-
-    def _load_urls_fallback(self):
-        """GitHub Actions 등 secrets.json 없는 환경용 — repo config/urls.json 에서 로드"""
-        if self._urls_fallback is not None:
-            return
-        path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "config", "urls.json"
-        )
-        try:
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    self._urls_fallback = json.load(f)
-        except Exception:
-            self._urls_fallback = {}
-
     def get_urls(self, key, default=None):
         """secrets.json의 urls 섹션 또는 환경변수 URLS_{key}에서 URL 목록을 반환합니다."""
         env_val = os.getenv(f"URLS_{key}")
@@ -93,11 +76,7 @@ class ConfigManager:
                 return json.loads(env_val)
             except Exception:
                 pass
-        result = self._secrets.get("urls", {}).get(key, None)
-        if result is not None:
-            return result
-        self._load_urls_fallback()
-        return self._urls_fallback.get(key, default if default is not None else [])
+        return self._secrets.get("urls", {}).get(key, default if default is not None else [])
 
 # 싱글톤 인스턴스
 config = ConfigManager()

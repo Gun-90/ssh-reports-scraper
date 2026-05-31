@@ -17,39 +17,35 @@ from utils.telegram_util import sendMarkDownText
 from utils.sqlite_util import convert_sql_to_telegram_messages
 from models.db_factory import get_db
 
-# business modules — GitHub Actions standalone 스크래퍼로 모두 분리됨
-# 비상시 EMERGENCY_SCRAPE=1 환경변수로 서버 직접 스크래핑 활성화 가능
-_EMERGENCY = os.getenv("EMERGENCY_SCRAPE", "0") == "1"
-
-if _EMERGENCY:
-    from modules.Koreainvestment_13 import Koreainvestment_selenium_checkNewArticle
-    from modules.ShinHanInvest_1 import ShinHanInvest_checkNewArticle
-    from modules.NHQV_2 import NHQV_checkNewArticle
-    from modules.HANA_3 import HANA_checkNewArticle
-    from modules.KBsec_4 import KB_checkNewArticle
-    from modules.Samsung_5 import Samsung_checkNewArticle
-    from modules.Sangsanginib_6 import Sangsanginib_checkNewArticle
-    from modules.Shinyoung_7 import Shinyoung_checkNewArticle
-    from modules.Miraeasset_8 import Miraeasset_checkNewArticle
-    from modules.Hmsec_9 import Hmsec_checkNewArticle
-    from modules.Kiwoom_10 import Kiwoom_checkNewArticle
-    from modules.DS_11 import DS_checkNewArticle
-    from modules.DAOL_14 import DAOL_checkNewArticle
-    from modules.TOSSinvest_15 import TOSSinvest_checkNewArticle
-    from modules.Leading_16 import Leading_checkNewArticle
-    from modules.Daeshin_17 import Daeshin_checkNewArticle
-    from modules.DBfi_19 import DBfi_checkNewArticle, DBfi_detail
-    from modules.MERITZ_20 import MERITZ_checkNewArticle
-    from modules.Hanwhawm_21 import Hanwha_checkNewArticle
-    from modules.Hygood_22 import Hanyang_checkNewArticle
-    from modules.BNKfn_23 import BNK_checkNewArticle
-    from modules.Kyobo_24 import Kyobo_checkNewArticle
-    from modules.IBKs_25 import IBK_checkNewArticle
-    from modules.SKS_26 import Sks_checkNewArticle
-    from modules.Yuanta_27 import Yuanta_checkNewArticle
-else:
-    # enrich_data()에서 DBfi_detail만 여전히 필요함
-    from modules.DBfi_19 import DBfi_detail
+# business modules
+from modules.LS_0 import LS_checkNewArticle, LS_detail
+from modules.ShinHanInvest_1 import ShinHanInvest_checkNewArticle
+from modules.NHQV_2 import NHQV_checkNewArticle
+from modules.HANA_3 import HANA_checkNewArticle
+from modules.KBsec_4 import KB_checkNewArticle
+from modules.Samsung_5 import Samsung_checkNewArticle
+from modules.Sangsanginib_6 import Sangsanginib_checkNewArticle
+from modules.Shinyoung_7 import Shinyoung_checkNewArticle
+from modules.Miraeasset_8 import Miraeasset_checkNewArticle
+from modules.Hmsec_9 import Hmsec_checkNewArticle
+from modules.Kiwoom_10 import Kiwoom_checkNewArticle
+from modules.DS_11 import DS_checkNewArticle
+from modules.eugenefn_12 import eugene_checkNewArticle
+from modules.Koreainvestment_13 import Koreainvestment_selenium_checkNewArticle
+from modules.DAOL_14 import DAOL_checkNewArticle
+from modules.TOSSinvest_15 import TOSSinvest_checkNewArticle
+from modules.Leading_16 import Leading_checkNewArticle
+from modules.Daeshin_17 import Daeshin_checkNewArticle
+from modules.iMfnsec_18 import iMfnsec_checkNewArticle
+from modules.DBfi_19 import DBfi_checkNewArticle, DBfi_detail
+from modules.MERITZ_20 import MERITZ_checkNewArticle
+from modules.Hanwhawm_21 import Hanwha_checkNewArticle
+from modules.Hygood_22 import Hanyang_checkNewArticle
+from modules.BNKfn_23 import BNK_checkNewArticle
+from modules.Kyobo_24 import Kyobo_checkNewArticle
+from modules.IBKs_25 import IBK_checkNewArticle
+from modules.SKS_26 import Sks_checkNewArticle
+from modules.Yuanta_27 import Yuanta_checkNewArticle # 비동기 버전 (파일명 변경됨)
 
 load_dotenv()
 token = os.getenv('TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET')
@@ -115,7 +111,6 @@ def log_scraper_health(name, rows):
         SCRAPER_HEALTH_ERRORS.append(msg)
         logger.error(msg)
 
-
 async def enrich_data():
     logger.info("Starting data enrichment process...")
     db = get_db()
@@ -162,8 +157,49 @@ async def enrich_data():
                             fixed = await DBfi_detail(articles=backlog, firm_info=firm_info, db=db)
                             fixed_count = sum(1 for r in fixed if r.get('telegram_url', '').startswith('https://whub.dbsec.co.kr/pv/gate'))
                             logger.success(f"[DBfi][유휴] {fixed_count}/{len(backlog)}건 gate URL 복구 완료")
-                elif sec_firm_order == 0:  # LS → GitHub Actions standalone으로 분리됨
-                    pass
+                elif sec_firm_order == 0:  # LS
+                    update_records = await LS_detail(articles=records, firm_info=firm_info)
+                    tasks = [db.update_telegram_url(r['report_id'], r['telegram_url'], r.get('article_title'), pdf_url=r.get('pdf_url') or r['telegram_url']) for r in update_records if r.get('telegram_url')]
+                    if tasks: await asyncio.gather(*tasks)
+
+                    # 최근 1일 이내 upload/ fallback → writer 기반 재시도 (reconstruct_msg_url_from_db 개선)
+                    fallback_records = db._fetchall('''
+                        SELECT report_id, article_title, writer, telegram_url, article_url, reg_dt, key
+                        FROM tbl_sec_reports
+                        WHERE sec_firm_order = 0
+                          AND telegram_url LIKE 'https://www.ls-sec.co.kr/upload/%%'
+                          AND save_time::timestamp >= NOW() - INTERVAL '1 day'
+                          AND key IS NOT NULL AND key != ''
+                        ORDER BY save_time DESC
+                        LIMIT 50
+                    ''')
+                    if fallback_records:
+                        logger.info(f"[LS] 최근 upload/ fallback {len(fallback_records)}건 재시도...")
+                        refixed = await LS_detail(articles=fallback_records, firm_info=firm_info)
+                        refix_tasks = [db.update_telegram_url(r['report_id'], r['telegram_url'], r.get('article_title'), pdf_url=r.get('pdf_url') or r['telegram_url']) for r in refixed if r.get('telegram_url', '').startswith('https://msg.ls-sec.co.kr/')]
+                        if refix_tasks:
+                            await asyncio.gather(*refix_tasks)
+                            logger.success(f"[LS] upload/ fallback {len(refix_tasks)}건 msg URL 재복구 완료")
+
+                    # 유휴시간(20시~06시)에는 전체 LS backlog 정리
+                    if is_idle_time:
+                        backlog = db._fetchall('''
+                            SELECT report_id, article_title, writer, telegram_url, article_url, reg_dt, key
+                            FROM tbl_sec_reports
+                            WHERE sec_firm_order = 0
+                              AND (telegram_url IS NULL OR telegram_url = ''
+                                   OR telegram_url NOT LIKE 'https://msg.ls-sec.co.kr/%%')
+                              AND key IS NOT NULL AND key != ''
+                            ORDER BY save_time DESC
+                            LIMIT 200
+                        ''')
+                        if backlog:
+                            logger.info(f"[LS][유휴] 전체 backlog {len(backlog)}건 재처리...")
+                            fixed = await LS_detail(articles=backlog, firm_info=firm_info)
+                            fix_tasks = [db.update_telegram_url(r['report_id'], r['telegram_url'], r.get('article_title'), pdf_url=r.get('pdf_url') or r['telegram_url']) for r in fixed if r.get('telegram_url', '').startswith('https://msg.ls-sec.co.kr/')]
+                            if fix_tasks:
+                                await asyncio.gather(*fix_tasks)
+                                logger.success(f"[LS][유휴] {len(fix_tasks)}건 msg URL 복구 완료")
                 elif sec_firm_order == 11:  # DS
                     pass
                 logger.success(f"[{firm_name}] Enrichment completed.")
@@ -190,9 +226,6 @@ async def daily_send_report(date_str=None):
             await db.daily_update_data(date_str=date_str, fetched_rows=rows, type='send')
             logger.success("Daily report sent and DB updated.")
 
-
-# ── Emergency scrape helpers (EMERGENCY_SCRAPE=1 전용) ──
-
 def run_sync_scrapers(sync_funcs, total_data):
     for func in sync_funcs:
         try:
@@ -207,27 +240,33 @@ def run_sync_scrapers(sync_funcs, total_data):
             SCRAPER_HEALTH_ERRORS.append(msg)
             logger.error(msg)
 
-
 async def run_async_scrapers(async_funcs, total_data):
     logger.info(f"Launching {len(async_funcs)} async scrapers...")
     tasks = []
     task_names = []
-
+    
     for f in async_funcs:
         try:
             if not callable(f):
                 continue
+            
+            # 함수를 일단 호출해봅니다.
             res = f()
+            
+            # 호출 결과가 코루틴(awaitable)인 경우에만 tasks에 추가
             if asyncio.iscoroutine(res):
                 tasks.append(res)
                 task_names.append(f.__name__)
+            # 호출 결과가 이미 리스트인 경우 (동기 함수처럼 동작한 경우) 즉시 처리
             elif isinstance(res, list):
                 total_data.extend(res)
                 log_scraper_health(f.__name__, res)
+            # 그 외의 경우 (None 등)
             elif res is not None:
                 msg = f"{f.__name__} returned unexpected type: {type(res)}"
                 SCRAPER_HEALTH_ERRORS.append(msg)
                 logger.error(msg)
+                
         except Exception as e:
             msg = f"Error calling scraper {f.__name__}: {e}"
             SCRAPER_HEALTH_ERRORS.append(msg)
@@ -252,63 +291,75 @@ async def run_async_scrapers(async_funcs, total_data):
             SCRAPER_HEALTH_ERRORS.append(msg)
             logger.error(msg)
 
-
-async def _emergency_scrape(db):
-    """비상시 서버 직접 스크래핑 (EMERGENCY_SCRAPE=1)."""
-    logger.warning("=== EMERGENCY MODE: 서버 직접 스크래핑 활성화 ===")
+async def main(date_str=None):
+    logger.info("=================== SCRAPER START ===================")
     total_data = []
+    db = get_db()
+    
+    # ── LS증권: 목록 2p 스크래핑 → DB 키 비교 → 신규만 detail ──
+    ls_articles = LS_checkNewArticle()
+    if ls_articles:
+        logger.info(f"[LS] 신규 {len(ls_articles)}건 detail 추출 시작")
+        enriched = await LS_detail(ls_articles, db=db)
+        for a in enriched:
+            if a.get("telegram_url"):
+                total_data.append(a)
+        logger.success(f"[LS] {len(enriched)}건 detail 완료")
 
     sync_funcs = [
-        Miraeasset_checkNewArticle, Sks_checkNewArticle,
+        Miraeasset_checkNewArticle, Sks_checkNewArticle, 
         Samsung_checkNewArticle, Shinyoung_checkNewArticle, Hmsec_checkNewArticle,
         TOSSinvest_checkNewArticle, DS_checkNewArticle
     ]
     async_functions = [
-        Koreainvestment_selenium_checkNewArticle,
         ShinHanInvest_checkNewArticle, Leading_checkNewArticle,
         NHQV_checkNewArticle, HANA_checkNewArticle, KB_checkNewArticle,
-        Sangsanginib_checkNewArticle, Kiwoom_checkNewArticle,
-        DAOL_checkNewArticle, Daeshin_checkNewArticle,
+        Sangsanginib_checkNewArticle, Kiwoom_checkNewArticle, 
+        # Koreainvestment_selenium_checkNewArticle, # Selenium 에러 해결 중 (보류)
+        DAOL_checkNewArticle, 
+        Daeshin_checkNewArticle, 
+        # iMfnsec_checkNewArticle, # 보류
         DBfi_checkNewArticle,
         MERITZ_checkNewArticle, Hanwha_checkNewArticle, Hanyang_checkNewArticle,
         BNK_checkNewArticle, Kyobo_checkNewArticle, IBK_checkNewArticle,
-        Yuanta_checkNewArticle
+        # eugene_checkNewArticle # 세션 만료 및 제한 에러 (보류)
+        Yuanta_checkNewArticle # 비동기 버전 (명칭 표준화됨)
     ]
 
     run_sync_scrapers(sync_funcs, total_data)
     await run_async_scrapers(async_functions, total_data)
 
     if total_data:
-        unique = {d.get("key"): d for d in total_data if d.get("key")}
+        unique = { d.get("key"): d for d in total_data if d.get("key") }
         total_list = list(unique.values())
         try:
             ins, upd = db.insert_json_data_list(total_list)
-            logger.success(f"[EMERGENCY] DB Sync: {ins} new, {upd} updated.")
+            logger.success(f"DB Sync: {ins} new, {upd} updated.")
+            
+            # 새로 insert된 레포트 자동 태그 추출 (enricher) -> 최적화 실패로 인한 일시 주석 처리
+            # new_keys = getattr(db, '_last_inserted_keys', [])
+            # if new_keys:
+            #     try:
+            #         from enricher import EnricherManager
+            #         enricher = EnricherManager(db_manager=db)
+            #         enrich_result = enricher.enrich_by_keys(new_keys)
+            #         logger.info(f"[Enricher] {enrich_result['enriched']}/{len(new_keys)} enriched")
+            #     except Exception as e:
+            #         logger.warning(f"[Enricher] skipped (non-critical): {e}")
+            
+            # DB 삽입 후 잠시 대기하여 트리거/커밋이 확실히 반영되도록 함
             await asyncio.sleep(1)
         except Exception as e:
-            logger.error(f"[EMERGENCY] DB error: {e}")
-    else:
-        logger.warning("[EMERGENCY] No data scraped.")
-
-
-async def main(date_str=None):
-    logger.info("=================== SCRAPER START ===================")
-    db = get_db()
-
-    # ── GitHub Actions 전환 완료: 기본 모드는 enrich + send 만 수행 ──
-    # ── EMERGENCY_SCRAPE=1 시 서버 직접 스크래핑으로 폴백 ──
-    if _EMERGENCY:
-        await _emergency_scrape(db)
+            logger.error(f"DB error: {e}")
 
     await enrich_data()
-
+    
     # 발송 전에 DB 연결을 새로 하거나 세션을 확실히 분리하여 최신 데이터를 가져옴
     await daily_send_report(date_str=date_str)
     logger.info("=================== SCRAPER END =====================")
     if SCRAPER_HEALTH_ERRORS:
         joined = "; ".join(SCRAPER_HEALTH_ERRORS)
         raise RuntimeError(f"Scraper health check failed: {joined}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

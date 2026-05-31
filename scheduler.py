@@ -13,9 +13,10 @@ from utils.logger_util import setup_logger
 setup_logger("scheduler")
 
 def run_scraper():
-    """메인 스크래퍼 실행 (scraper.py) — enrich + send (스크래핑은 GitHub Actions로 전환)"""
-    logger.info("--- [Job Start] Main Scraper (enrich + send) ---")
+    """메인 스크래퍼 실행 (scraper.py)"""
+    logger.info("--- [Job Start] Main Scraper (scraper.py) ---")
     try:
+        # uv run scraper.py 실행 (출력 캡처)
         result = subprocess.run(
             ["uv", "run", "scraper.py"],
             capture_output=True,
@@ -31,59 +32,6 @@ def run_scraper():
     except Exception as e:
         logger.error(f"Execution Error: {e}")
     logger.info("--- [Job End] Main Scraper ---")
-
-
-def run_import_ls():
-    """LS 증권사 GitHub Actions 아티팩트 → DB import"""
-    logger.info("--- [Job Start] LS Artifact Import ---")
-    try:
-        result = subprocess.run(
-            ["uv", "run", "python", "scripts/import_ls_artifact.py"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=300,
-        )
-        if result.returncode != 0:
-            logger.error(f"LS import exited with code {result.returncode}")
-            if result.stderr:
-                logger.error(f"LS import stderr:\n{result.stderr[:500]}")
-        else:
-            # 요약만 출력
-            for line in result.stdout.strip().split('\n'):
-                if any(kw in line for kw in ('Import', 'skipped', 'inserted', 'Complete')):
-                    logger.info(f"[LS-import] {line.strip()}")
-    except subprocess.TimeoutExpired:
-        logger.error("LS import timed out (300s)")
-    except Exception as e:
-        logger.error(f"LS import error: {e}")
-    logger.info("--- [Job End] LS Artifact Import ---")
-
-
-def run_import_all():
-    """전체 증권사 GitHub Actions 아티팩트 → DB import"""
-    logger.info("--- [Job Start] All-Firms Artifact Import ---")
-    try:
-        result = subprocess.run(
-            ["uv", "run", "python", "scripts/import_all_artifact.py"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=600,
-        )
-        if result.returncode != 0:
-            logger.error(f"All-firms import exited with code {result.returncode}")
-            if result.stderr:
-                logger.error(f"All-firms import stderr:\n{result.stderr[:500]}")
-        else:
-            for line in result.stdout.strip().split('\n'):
-                if any(kw in line for kw in ('Import', 'inserted', 'updated', 'Complete', 'SUCCESS')):
-                    logger.info(f"[All-import] {line.strip()}")
-    except subprocess.TimeoutExpired:
-        logger.error("All-firms import timed out (600s)")
-    except Exception as e:
-        logger.error(f"All-firms import error: {e}")
-    logger.info("--- [Job End] All-Firms Artifact Import ---")
 
 # 최적화 실패로 인한 일시 주석 처리
 # def run_enricher_batch(limit=200):
@@ -144,30 +92,14 @@ def run_ai_summary(limit):
 
 scheduler = BlockingScheduler()
 
-# [스케줄 1] 메인 스크래퍼 (enrich + send): 30분 간격
+# [스케줄 1] 메인 스크래퍼: */30 0,5-12,14-23 * * * (기존 crontab 복제)
 scheduler.add_job(
     run_scraper,
-    CronTrigger(minute='*/30', hour='0,5-12,14-23', jitter=300),
+    CronTrigger(minute='*/30', hour='0,5-12,14-23', jitter=300), # 300초(5분) 랜덤 지터 추가
     id="main_scraper_job"
 )
 
-# [스케줄 2] LS 아티팩트 import: GitHub Actions 완료 시점에 맞춰 매시 05, 35분
-#   LS cron: 0,30 → GitHub Actions가 :00, :30에 실행 → import는 :05, :35
-scheduler.add_job(
-    run_import_ls,
-    CronTrigger(minute='5,35', hour='0,5-12,14-23', jitter=60),
-    id="import_ls_artifact_job"
-)
-
-# [스케줄 3] 전체 증권사 아티팩트 import: GitHub Actions 완료 시점에 맞춰 매시 10, 40분
-#   scrape-all cron: 5,35 → GitHub Actions가 :05, :35에 실행 → import는 :10, :40
-scheduler.add_job(
-    run_import_all,
-    CronTrigger(minute='10,40', hour='0,5-12,14-23', jitter=60),
-    id="import_all_artifact_job"
-)
-
-# [스케줄 4] Enricher 배치: 15분마다 2000건 인프로세스 (~28만건/35시간) -> 최적화 실패로 인한 일시 비활성화
+# [스케줄 2] Enricher 배치: 15분마다 2000건 인프로세스 (~28만건/35시간) -> 최적화 실패로 인한 일시 비활성화
 # scheduler.add_job(
 #     run_enricher_batch,
 #     CronTrigger(minute='*/15', jitter=60),
