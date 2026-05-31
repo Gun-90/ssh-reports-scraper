@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""
+전체 증권사 Standalone Scraper — GitHub Actions 전용
+======================================================
+기존 scraper.py의 checkNewArticle 함수들을 그대로 재사용하여
+전체 증권사 스크래핑을 GitHub Actions에서 수행.
+
+- DB 접근 없이 순수 HTTP 크롤링 결과만 수집
+- 각 증권사별 독립 실행 (한 곳 실패해도 나머지 진행)
+- 결과는 JSON으로 stdout 출력 → artifact 업로드
+
+서버 import 스크립트(import_all_artifact.py)가 JSON을 받아
+DB insert (ON CONFLICT dedup) + 후처리를 담당한다.
+
+제외된 증권사:
+  - LS증권 (LS_0): 별도 scrape-ls.yml로 분리
+  - 한국투자증권 (Koreainvestment_13): Selenium 필요
+  - iMfnsec_18: 보류
+  - eugenefn_12: 세션 만료 이슈 보류
+
+사용법:
+  python3 scripts/standalone_all_scraper.py [--firms 0,1,2] [--timeout 120]
+"""
+
+import argparse
+import asyncio
+import json
+import os
+import sys
+import time
+import traceback
+from datetime import datetime
+
+# ── 환경 설정 (DB 백엔드를 sqlite로 해도 write는 안 함) ──
+os.environ.setdefault("DB_BACKEND", "sqlite")
+os.environ.setdefault("SQLITE_DB_PATH", "/tmp/telegram_standalone.db")
+os.environ.setdefault("LOG_BASE_DIR", "/tmp")
+os.environ.setdefault("SOCKS_PROXY_URL", "")  # GitHub Actions에서는 프록시 불필요
+os.environ.setdefault("SCRAPER_STALE_DAYS", "30")  # stale 체크 완화
+
+# ── 프로젝트 루트 추가 ──
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
+load_dotenv(override=False)
+
+# 로깅 최소화 (stderr만)
+from loguru import logger
+logger.remove()
+logger.add(sys.stderr, level="INFO", format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}")
+
+# ── 모든 checkNewArticle 함수 import ──
+IMPORT_MAP: dict[str, tuple[str, str, bool]] = {
+    # "키": ("모듈경로", "함수명", is_async)
+    "LS_0":               ("modules.LS_0",               "LS_checkNewArticle",               False),
+    "ShinHanInvest_1":    ("modules.ShinHanInvest_1",    "ShinHanInvest_checkNewArticle",     True),
+    "NHQV_2":             ("modules.NHQV_2",             "NHQV_checkNewArticle",              True),
+    "HANA_3":             ("modules.HANA_3",             "HANA_checkNewArticle",              True),
+    "KBsec_4":            ("modules.KBsec_4",            "KB_checkNewArticle",                True),
+    "Samsung_5":          ("modules.Samsung_5",          "Samsung_checkNewArticle",           False),
+    "Sangsanginib_6":     ("modules.Sangsanginib_6",     "Sangsanginib_checkNewArticle",      True),
+    "Shinyoung_7":        ("modules.Shinyoung_7",        "Shinyoung_checkNewArticle",         False),
+    "Miraeasset_8":       ("modules.Miraeasset_8",       "Miraeasset_checkNewArticle",        False),
+    "Hmsec_9":            ("modules.Hmsec_9",            "Hmsec_checkNewArticle",             False),
+    "Kiwoom_10":          ("modules.Kiwoom_10",          "Kiwoom_checkNewArticle",            True),
+    "DS_11":              ("modules.DS_11",              "DS_checkNewArticle",                False),
+    # eugenefn_12: 보류
+    # Koreainvestment_13: Selenium 필요
+    "DAOL_14":            ("modules.DAOL_14",            "DAOL_checkNewArticle",              True),
+    "TOSSinvest_15":      ("modules.TOSSinvest_15",      "TOSSinvest_checkNewArticle",        False),
+    "Leading_16":         ("modules.Leading_16",         "Leading_checkNewArticle",           True),
+    "Daeshin_17":         ("modules.Daeshin_17",         "Daeshin_checkNewArticle",           True),
+    # iMfnsec_18: 보류
+    "DBfi_19":            ("modules.DBfi_19",            "DBfi_checkNewArticle",              True),
+    "MERITZ_20":          ("modules.MERITZ_20",          "MERITZ_checkNewArticle",            True),
+    "Hanwhawm_21":        ("modules.Hanwhawm_21",        "Hanwha_checkNewArticle",            True),
+    "Hygood_22":          ("modules.Hygood_22",          "Hanyang_checkNewArticle",           True),
+    "BNKfn_23":           ("modules.BNKfn_23",           "BNK_checkNewArticle",               True),
+    "Kyobo_24":           ("modules.Kyobo_24",           "Kyobo_checkNewArticle",             True),
+    "IBKs_25":            ("modules.IBKs_25",            "IBK_checkNewArticle",               True),
+    "SKS_26":             ("modules.SKS_26",             "Sks_checkNewArticle",               False),
+    "Yuanta_27":          ("modules.Yuanta_27",          "Yuanta_checkNewArticle",            True),
+}
+
+# LS는 별도 처리하므로 제외 (하지만 테스트용으로 --firms 옵션으로 포함 가능)
+SKIP_FIRMS = {"LS_0"}  # LS는 scrape-ls.yml에서 처리
+
+
+def import_function(module_path: str, func_name: str):
+    """동적 import → callable 반환"""
+    import importlib
+    mod = importlib.import_module(module_path)
+    return getattr(mod, func_name)
+
+
+def run_sync_scraper(name: str, func, timeout: int) -> dict:
+    """동기 스크래퍼 실행 → 결과 dict"""
+    t0 = time.time()
+    try:
+        logger.info(f"[{name}] 시작...")
+        result = func()
+        elapsed = time.time() - t0
+        count = len(result) if isinstance(result, list) else 0
+        logger.success(f"[{name}] 완료: {count}건 ({elapsed:.1f}s)")
+        return {
+            "name": name,
+            "status": "success",
+            "count": count,
+            "elapsed_sec": round(elapsed, 1),
+            "articles": result if isinstance(result, list) else [],
+        }
+    except Exception as e:
+        elapsed = time.time() - t0
+        logger.error(f"[{name}] 실패: {e} ({elapsed:.1f}s)")
+        return {
+            "name": name,
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "elapsed_sec": round(elapsed, 1),
+            "articles": [],
+        }
+
+
+async def run_async_scraper(name: str, func, timeout: int) -> dict:
+    """비동기 스크래퍼 실행 → 결과 dict"""
+    t0 = time.time()
+    try:
+        logger.info(f"[{name}] 시작 (async)...")
+        result = func()
+        if asyncio.iscoroutine(result):
+            result = await asyncio.wait_for(result, timeout=timeout)
+        elapsed = time.time() - t0
+        count = len(result) if isinstance(result, list) else 0
+        logger.success(f"[{name}] 완료: {count}건 ({elapsed:.1f}s)")
+        return {
+            "name": name,
+            "status": "success",
+            "count": count,
+            "elapsed_sec": round(elapsed, 1),
+            "articles": result if isinstance(result, list) else [],
+        }
+    except asyncio.TimeoutError:
+        elapsed = time.time() - t0
+        logger.error(f"[{name}] 타임아웃 ({timeout}s)")
+        return {"name": name, "status": "timeout", "elapsed_sec": round(elapsed, 1), "articles": []}
+    except Exception as e:
+        elapsed = time.time() - t0
+        logger.error(f"[{name}] 실패: {e} ({elapsed:.1f}s)")
+        return {
+            "name": name,
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "elapsed_sec": round(elapsed, 1),
+            "articles": [],
+        }
+
+
+async def main():
+    parser = argparse.ArgumentParser(description="전체 증권사 Standalone Scraper")
+    parser.add_argument("--firms", type=str, default=None,
+                        help="쉼표로 구분된 증권사 키 목록 (예: 'BNKfn_23,HANA_3'). 기본: 전체")
+    parser.add_argument("--timeout", type=int, default=120,
+                        help="비동기 함수당 타임아웃(초) (기본: 120)")
+    parser.add_argument("--skip-ls", action="store_true", default=True,
+                        help="LS증권 제외 (기본: True)")
+    args = parser.parse_args()
+
+    # 대상 증권사 결정
+    if args.firms:
+        target_firms = [k.strip() for k in args.firms.split(",") if k.strip() in IMPORT_MAP]
+    else:
+        target_firms = [k for k in IMPORT_MAP if k not in (SKIP_FIRMS if args.skip_ls else set())]
+
+    logger.info(f"대상 증권사: {len(target_firms)}개")
+    for f in target_firms:
+        logger.info(f"  - {f}")
+
+    # ── import 확인 ──
+    sync_funcs: list[tuple[str, callable]] = []
+    async_funcs: list[tuple[str, callable]] = []
+
+    for key in target_firms:
+        module_path, func_name, is_async = IMPORT_MAP[key]
+        try:
+            func = import_function(module_path, func_name)
+            if is_async:
+                async_funcs.append((key, func))
+            else:
+                sync_funcs.append((key, func))
+            logger.debug(f"  {key}: import OK")
+        except Exception as e:
+            logger.error(f"  {key}: import 실패 - {e}")
+
+    results: list[dict] = []
+
+    # ── Phase 1: 동기 스크래퍼 ──
+    logger.info(f"\n=== Phase 1: Sync Scrapers ({len(sync_funcs)}개) ===")
+    for name, func in sync_funcs:
+        result = run_sync_scraper(name, func, args.timeout)
+        results.append(result)
+        time.sleep(1)  # polite delay
+
+    # ── Phase 2: 비동기 스크래퍼 ──
+    logger.info(f"\n=== Phase 2: Async Scrapers ({len(async_funcs)}개) ===")
+    tasks = [run_async_scraper(name, func, args.timeout) for name, func in async_funcs]
+    async_results = await asyncio.gather(*tasks)
+    results.extend(async_results)
+
+    # ── 집계 ──
+    total_articles = 0
+    success_firms = 0
+    failed_firms = 0
+
+    for r in results:
+        if r["status"] == "success":
+            success_firms += 1
+            total_articles += r["count"]
+        else:
+            failed_firms += 1
+
+    logger.info(f"\n=== 최종 집계 ===")
+    logger.info(f"성공: {success_firms}, 실패: {failed_firms}, 총 아티클: {total_articles}")
+
+    output = {
+        "scraped_at": datetime.now().isoformat(),
+        "source": "github-actions",
+        "total_firms": len(results),
+        "success_firms": success_firms,
+        "failed_firms": failed_firms,
+        "total_articles": total_articles,
+        "firms": results,
+    }
+
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
