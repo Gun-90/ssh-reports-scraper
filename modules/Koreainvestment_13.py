@@ -29,6 +29,9 @@ async def Koreainvestment_selenium_checkNewArticle():
 
     TARGET_URL_0 = config.get_urls("Koreainvestment_13")[0]
     
+    # 백필 등 고페이지 수집용 — KOREAMAX_PAGES 환경변수 (기본 10)
+    _max_pages = int(os.getenv("KOREAMAX_PAGES", "10"))
+
     CATEGORIES = [
         {"name": "전체", "board_order": 0, "script": None, "mkt_tp": "KR"},
         {"name": "미국 현지 리서치", "board_order": 10, "script": "onTab1Selected('stifel', 1);", "mkt_tp": "GLOBAL"}
@@ -94,7 +97,7 @@ async def Koreainvestment_selenium_checkNewArticle():
                 driver.execute_script(cat["script"])
                 time.sleep(2)
 
-            for page in range(1, 11):
+            for page in range(1, _max_pages + 1):
                 if page > 1:
                     driver.execute_script(f"goPage({page});")
                     time.sleep(2)
