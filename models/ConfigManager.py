@@ -72,14 +72,36 @@ class ConfigManager:
         return self._secrets.get("common", {}).get(key, default)
 
     def get_urls(self, key, default=None):
-        """secrets.json의 urls 섹션 또는 환경변수 URLS_{key}에서 URL 목록을 반환합니다."""
+        """증권사 URL 목록 반환.
+        우선순위: 1) env var `urls` JSON (generate_env.py) → 2) env var URLS_{key} → 3) secrets.json 직접 읽기
+        """
+        # 1) generate_env.py가 .env에 쓰는 urls 키 (전체 JSON)
+        env_urls = os.getenv("urls")
+        if env_urls:
+            try:
+                all_urls = json.loads(env_urls)
+                if key in all_urls:
+                    return all_urls[key]
+            except Exception:
+                pass
+        # 2) 개별 URLS_{key} 환경변수
         env_val = os.getenv(f"URLS_{key}")
         if env_val:
             try:
                 return json.loads(env_val)
             except Exception:
                 pass
+        # 3) secrets.json 직접 읽기 (현재 프로덕션)
         return self._secrets.get("urls", {}).get(key, default if default is not None else [])
+
+    def get_base_url(self, key, default=""):
+        """첫 번째 URL에서 scheme+netloc 추출."""
+        from urllib.parse import urlparse
+        urls = self.get_urls(key)
+        if urls and isinstance(urls, list) and urls[0]:
+            p = urlparse(urls[0])
+            return f"{p.scheme}://{p.netloc}"
+        return default
 
 # 싱글톤 인스턴스
 config = ConfigManager()
