@@ -49,7 +49,7 @@ async def update_firm_telegram_url(date_str=None, target_firm_order=None):
             logger.info(f"[{firm_name}] Found {len(records)} records for enrichment.")
 
             try:
-                if sec_firm_order == 19:  # DB금융투자
+                if sec_firm_order == 19:  # DB증권
                     # 데이터가 너무 많을 경우를 대비한 안전장치 (필요 시 조절)
                     if len(records) > 50:
                         logger.warning(f"[{firm_name}] Too many records ({len(records)}). Processing top 50.")

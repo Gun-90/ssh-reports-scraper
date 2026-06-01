@@ -408,7 +408,7 @@ class SQLiteManager:
 
     async def fetch_pending_summary_reports(self, limit=10):
         """요약이 아직 생성되지 않은 최근 레포트 목록을 조회합니다. (보안 PDF 증권사 등은 제외)"""
-        # 제외 대상: 19(DB금융투자)
+        # 제외 대상: 19(DB증권)
         exclude_firms = (19,) 
         
         query = f"""

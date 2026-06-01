@@ -26,7 +26,7 @@ def get_all_scrapers():
         ("현대차증권", "modules.Hmsec_9", "Hmsec_checkNewArticle", False),
         ("키움증권", "modules.Kiwoom_10", "Kiwoom_checkNewArticle", False),
         ("대신증권", "modules.Daeshin_17", "Daeshin_checkNewArticle", False),
-        ("DB금융투자", "modules.DBfi_19", "DBfi_checkNewArticle", True),
+        ("DB증권", "modules.DBfi_19", "DBfi_checkNewArticle", True),
         ("유진투자", "modules.eugenefn_12", "eugenefn_checkNewArticle", False),
         ("한국투자", "modules.Koreainvestment_13", "Koreainvestment_checkNewArticle", False),
         ("다올투자", "modules.DAOL_14", "DAOL_checkNewArticle", True),
