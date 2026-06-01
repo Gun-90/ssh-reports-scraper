@@ -1,8 +1,8 @@
-from loguru import logger
 # -*- coding:utf-8 -*- 
-import os
+from loguru import logger
 import gc
 import requests
+import time
 from datetime import datetime
 
 import os
@@ -16,7 +16,6 @@ from models.ConfigManager import config
 
 def Hmsec_checkNewArticle():
     sec_firm_order      = 9
-    article_board_order = 0
     json_data_list = []
 
     requests.packages.urllib3.disable_warnings()
@@ -26,83 +25,69 @@ def Hmsec_checkNewArticle():
         logger.warning("No URLs found for Hmsec_9")
         return []
 
-    # URL GET
-    soupList = None
     for article_board_order, TARGET_URL in enumerate(TARGET_URL_TUPLE):
         firm_info = FirmInfo(
             sec_firm_order=sec_firm_order,
             article_board_order=article_board_order
         )
-        payload = {"curPage":1}
 
-        scraper = SyncWebScraper(TARGET_URL, firm_info)
+        page = 1
+        total_pages = None
+        max_pages = 5  # 보드당 최대 5페이지(40건) — 30분 주기에 충분
+        board_articles = 0
 
-        # HTML parse
-        jres = scraper.PostJson(params=payload)
+        while True:
+            if page > max_pages:
+                break
+            payload = {"curPage": page}
+            scraper = SyncWebScraper(TARGET_URL, firm_info)
 
+            try:
+                jres = scraper.PostJson(params=payload)
+            except Exception as e:
+                logger.warning(f"Hmsec page {page} fetch failed: {e}")
+                break
 
-        # REG_DATE = jres['data_list'][0]['REG_DATE'].strip()
-        # FILE_NAME = jres['data_list'][0]['UPLOAD_FILE1'].strip()
-        # logger.debug('REG_DATE:',REG_DATE)
-        # logger.debug('FILE_NAME:',FILE_NAME)
+            if not jres or not isinstance(jres, dict):
+                break
 
-        # logger.debug(jres)
-        soupList = jres.get('data_list', [])
+            soupList = jres.get('data_list', [])
+            if not soupList:
+                break
 
-        # JSON To List
-        for list in soupList:
-            # logger.debug(list)
-            # https://www.hmsec.com/documents/research/20230103075940673_ko.pdf
-            download_url = 'https://www.hmsec.com/documents/research/{}'
-            download_url = download_url.format(list['UPLOAD_FILE1'])
+            if total_pages is None:
+                paging = jres.get('paging', {})
+                total_pages = paging.get('totalPages', 1)
 
-            # https://docs.hmsec.com/SynapDocViewServer/job?fid=#&sync=true&fileType=URL&filePath=#
-            LIST_ARTICLE_URL = 'https://docs.hmsec.com/SynapDocViewServer/job?fid={}&sync=true&fileType=URL&filePath={}'
-            LIST_ARTICLE_URL = LIST_ARTICLE_URL.format(download_url, download_url)
+            for item in soupList:
+                download_url = f"https://www.hmsec.com/documents/research/{item['UPLOAD_FILE1']}"
+                article_url = f"https://docs.hmsec.com/SynapDocViewServer/job?fid={download_url}&sync=true&fileType=URL&filePath={download_url}"
+                writer = (item.get('NAME') or '').strip()
+                reg_dt = (item.get('REG_DATE') or '').strip()
 
-            LIST_ARTICLE_TITLE = list['SUBJECT']
+                json_data_list.append({
+                    "sec_firm_order": sec_firm_order,
+                    "article_board_order": article_board_order,
+                    "firm_nm": firm_info.get_firm_name(),
+                    "article_title": item['SUBJECT'],
+                    "reg_dt": reg_dt,
+                    "article_url": article_url,
+                    "pdf_url": download_url,
+                    "download_url": download_url,
+                    "telegram_url": article_url,
+                    "key": article_url,
+                    "writer": writer,
+                    "save_time": datetime.now().isoformat()
+                })
+                board_articles += 1
 
-            reg_dt = list['REG_DATE'].strip()
-            list['NAME'] = (list.get('NAME') or '').strip()
-            writer = list['NAME'].strip()
-            # logger.debug(jres['data_list'])
-            # SERIAL_NO = jres['data_list'][0]['SERIAL_NO']
+            page += 1
+            if total_pages and page > total_pages:
+                break
+            time.sleep(0.3)  # polite delay
 
-            # LIST_ARTICLE_URL = DownloadFile(URL = LIST_ATTACHMENT_URL, FILE_NAME = LIST_ARTICLE_TITLE +'.pdf')
-            # ATTACH_FILE_NAME = DownloadFile(URL = LIST_ATTACHMENT_URL, FILE_NAME = LIST_ARTICLE_TITLE +'.pdf')
+        logger.info(f"Hmsec board={article_board_order}: {board_articles} articles ({page-1} pages)")
 
-            json_data_list.append({
-                "sec_firm_order":sec_firm_order,
-                "article_board_order":article_board_order,
-                "firm_nm":firm_info.get_firm_name(),
-                "article_title":LIST_ARTICLE_TITLE,
-                "reg_dt":reg_dt,
-                "article_url":LIST_ARTICLE_URL,
-                "pdf_url": download_url,
-                "download_url": download_url,
-                "telegram_url": LIST_ARTICLE_URL,
-                "key": LIST_ARTICLE_URL,
-                "writer": writer,
-                "save_time": datetime.now().isoformat()
-            })
-
-
-    # 메모리 정리
-    if soupList is not None:
-        del soupList
-    gc.collect()    # logger.debug(json_data_list)
+    gc.collect()
+    logger.info(f"Hmsec total: {len(json_data_list)} articles")
     return json_data_list
-
-
-# # 비동기 함수 실행
-# async def main():
-#     result = await Sangsanginib_checkNewArticle()
-# logger.debug(result)
-
-def main():
-    result = Hmsec_checkNewArticle()
-    logger.debug(result)
-    
-if __name__ == '__main__':
-    main()
-    # asyncio.run(main())
