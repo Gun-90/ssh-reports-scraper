@@ -96,7 +96,25 @@ class FirmInfo(metaclass=MetaFirmInfo):
             logger.debug(f"FirmInfo: Data successfully loaded from SQLite ({db_path}).")
             conn.close()
         except Exception as e:
-            logger.error(f"FirmInfo Error: Failed to load data from SQLite ({db_path}): {e}")
+            logger.warning(f"FirmInfo: DB unavailable ({e}), using static fallback")
+            cls._load_static_fallback()
+
+    @classmethod
+    def _load_static_fallback(cls):
+        """DB 접근 불가능한 환경(GitHub Actions 등)을 위한 정적 fallback."""
+        FALLBACK_FIRMS = {
+            0: "LS증권", 1: "신한증권", 2: "NH투자증권", 3: "하나증권",
+            4: "KB증권", 5: "삼성증권", 6: "상상인증권", 7: "신영증권",
+            8: "미래에셋증권", 9: "현대차증권", 10: "키움증권", 11: "DS투자증권",
+            12: "유진투자증권", 13: "한국투자증권", 14: "다올투자증권",
+            15: "토스증권", 16: "리딩투자증권", 17: "대신증권", 18: "IM증권",
+            19: "DB증권", 20: "메리츠증권", 21: "한화투자증권", 22: "한양증권",
+            23: "BNK투자증권", 24: "교보증권", 25: "IBK투자증권", 26: "SK증권",
+            27: "유안타증권", 28: "흥국증권",
+        }
+        for o, name in FALLBACK_FIRMS.items():
+            cls._firm_data[o] = {"name": name, "update_required": False}
+        cls._is_loaded = True
 
     def __init__(self, sec_firm_order=0, article_board_order=0, firm_info=None):
         if not self._is_loaded:

@@ -22,17 +22,20 @@ class ConfigManager:
             self._env = 'prod'
 
         # 2. 외부 JSON 로드
+        self._has_secrets = False
         secrets_path = os.path.expanduser("~/secrets/ssh-reports-scraper/secrets.json")
         try:
             if os.path.exists(secrets_path):
                 with open(secrets_path, 'r', encoding='utf-8') as f:
                     self._secrets = json.load(f)
-                # logger는 설정에 따라 지연 로딩될 수 있으므로 직접 출력
-                # print(f"ConfigManager: Loaded secrets for environment: {self._env}")
+                self._has_secrets = True
             else:
                 self._secrets = {"common": {}, "dev": {}, "prod": {}}
         except Exception as e:
             self._secrets = {"common": {}, "dev": {}, "prod": {}}
+
+    def has_secrets(self):
+        return self._has_secrets
 
     @property
     def ENV(self):
