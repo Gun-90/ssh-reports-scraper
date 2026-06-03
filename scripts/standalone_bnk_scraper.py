@@ -10,6 +10,7 @@ import json
 import re
 import sys
 import traceback
+import os
 import socket
 import ssl
 from datetime import datetime
@@ -17,12 +18,12 @@ from datetime import datetime
 import aiohttp
 from bs4 import BeautifulSoup
 
-BNK_URLS = [
-    "https://www.bnkfn.co.kr/research/analysingCompany.jspx",
-    "https://www.bnkfn.co.kr/research/analysingIssue.jspx",
-    "https://www.bnkfn.co.kr/research/economyAnalyse.jspx",
-    "https://www.bnkfn.co.kr/research/marketOverview2.jspx",
-]
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from models.ConfigManager import config
+
+BNK_URLS = config.get_urls("BNKfn_23")
+if not BNK_URLS:
+    raise RuntimeError("Missing BNKfn_23 URLs. Populate ~/secrets/ssh-reports-scraper/secrets.json first.")
 
 HEADERS = {
     "Accept": "*/*",

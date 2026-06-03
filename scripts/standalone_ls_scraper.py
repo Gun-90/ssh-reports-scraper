@@ -30,24 +30,18 @@ import aiohttp
 import requests
 from bs4 import BeautifulSoup
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from models.ConfigManager import config
+
 # ---------------------------------------------------------------------------
 # 상수
 # ---------------------------------------------------------------------------
 SEC_FIRM_ORDER = 0
 FIRM_NM = "LS증권"
 
-BOARD_URLS = [
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=105&virtual_no=&page=1",  # 기업분석
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=100&virtual_no=&page=1",  # 산업분석
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=132&virtual_no=&page=1",  # 투자전략
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=108&virtual_no=&page=1",  # Quant
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=141&virtual_no=&page=1",  # Credit
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=144&virtual_no=&page=1",  # 해외주식
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=109&virtual_no=&page=1",  # 시황
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=107&virtual_no=&page=1",  # Small cap
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=133&virtual_no=&page=1",  # 계량분석
-    "https://www.ls-sec.co.kr/EtwFrontBoard/boardCntsList.jsp?board_no=136&virtual_no=&page=1",  # 파생
-]
+BOARD_URLS = config.get_urls("LS_0")
+if not BOARD_URLS:
+    raise RuntimeError("Missing LS_0 URLs. Populate ~/secrets/ssh-reports-scraper/secrets.json first.")
 
 BOARD_NAMES = [
     "기업분석", "산업분석", "투자전략", "Quant", "Credit",

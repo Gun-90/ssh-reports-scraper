@@ -3,6 +3,7 @@ import gc
 import logging
 import json
 import re
+import sys
 import urllib.parse as urlparse
 import urllib.request
 import asyncio
@@ -10,12 +11,15 @@ import aiohttp
 from datetime import datetime, timedelta, date
 import time
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from bs4 import BeautifulSoup
 from models.FirmInfo import FirmInfo
 from models.WebScraper import AsyncWebScraper  # 비동기 웹 스크래퍼가 필요합니다.
 from models.SQLiteManager import SQLiteManager
 from package.json_to_sqlite import insert_json_data_list
 from utils.date_util import GetCurrentDate
+from models.ConfigManager import config
 
 async def fetch_html(session, url):
     async with session.get(url, ssl=False) as response:
@@ -27,16 +31,9 @@ async def LS_checkNewArticle():
     sec_firm_order = 0
     firm_nm = "LS증권"
 
-    TARGET_URLS = [
-        'REMOVED',
-        'REMOVED',
-        'REMOVED',
-        'REMOVED',
-        'REMOVED',
-        'REMOVED',
-        'REMOVED',
-        'REMOVED'
-    ]
+    TARGET_URLS = config.get_urls("LS_0")
+    if not TARGET_URLS:
+        raise RuntimeError("Missing LS_0 URLs. Populate ~/secrets/ssh-reports-scraper/secrets.json first.")
 
     async with aiohttp.ClientSession() as session:
         for article_board_order, base_url in enumerate(TARGET_URLS):
