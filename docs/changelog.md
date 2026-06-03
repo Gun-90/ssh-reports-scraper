@@ -13,6 +13,9 @@
 - **LS URL 규칙 상수화**: LS 공개 도메인, CDN, upload fallback URL 생성 규칙을 상수로 모아 보드 URL secrets와 알고리즘 URL을 분리했습니다.
 - **모듈 import 가드**: fake URL config로 전체 scraper module import와 함수 존재 여부를 검증하는 `tests/test_scraper_imports.py`를 추가했습니다.
 - **URL leak pre-commit 가드**: `.pre-commit-config.yaml`과 `scripts/check_url_leaks.py`를 추가해 새로 staged 된 URL 중 allowlist 밖 도메인을 감지할 수 있게 했습니다.
+- **Deploy CI 정리**: GitHub Actions deploy workflow를 Python 3.12로 맞추고 import/config guard test를 필수 단계로 변경했습니다.
+- **Health registry 정리**: import-only test와 daily health test가 같은 scraper registry를 보게 하여 함수명 drift를 줄였습니다. 현재 운영에서 보류 중인 유진/한국투자/iM은 import 검증만 수행하고 daily health 실행 대상에서는 제외했습니다.
+- **Scraper timeout 적용**: LS list/detail, 동기 scraper, 비동기 scraper에 env 기반 개별 timeout을 적용해 특정 증권사가 전체 수집을 무기한 막지 않도록 했습니다.
 
 ### 2026-06-03 — sqlite-pg-cutover 오픈소스 후보 추가
 

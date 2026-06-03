@@ -122,9 +122,9 @@ internal.management-hub (root)
 |---|------|------|------|
 | 5 | **모듈 import 순서 표준화** | 전체 `modules/*.py` | `config`, `FirmInfo` import를 항상 최상단에 배치하는 lint 규칙 |
 | 6 | **pre-commit hook: URL leak detector** | `.pre-commit-config.yaml`, `scripts/check_url_leaks.py` | 완료: staged diff에서 allowlist 밖 신규 URL을 감지 |
-| 7 | **CI 파이프라인: 모듈 import test** | `tests/test_scraper_imports.py` | 완료: fake URL config로 전체 scraper module import 및 함수 존재 여부 검증 |
+| 7 | **CI 파이프라인: 모듈 import test** | `.github/workflows/deploy.yml`, `tests/test_scraper_imports.py` | 완료: deploy workflow가 Python 3.12에서 import/config guard test를 필수 실행 |
 | 8 | **scheduler health endpoint** | `scheduler.py` | `/health` 엔드포인트 또는 Telegram 알람 (scraper 실패 시 즉시 통보) |
-| 9 | **증권사 scraper 개별 타임아웃** | `scraper.py` | LS처럼 오래 걸리는 scraper가 전체를 blocking하지 않도록 분리 |
+| 9 | **증권사 scraper 개별 타임아웃** | `scraper.py` | 완료: LS/list/detail, sync scraper, async scraper에 env 기반 개별 timeout 적용 |
 
 ### 🟢 P2 — 개발 경험
 

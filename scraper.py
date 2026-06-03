@@ -2,7 +2,6 @@
 import os
 import sys
 import asyncio
-import time
 import argparse
 import datetime
 from loguru import logger
@@ -52,6 +51,10 @@ load_dotenv()
 token = os.getenv('TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET')
 chat_id = os.getenv('TELEGRAM_CHANNEL_ID_REPORT_ALARM')
 SCRAPER_STALE_DAYS = int(os.getenv("SCRAPER_STALE_DAYS", "5"))
+SCRAPER_SYNC_TIMEOUT_SECONDS = int(os.getenv("SCRAPER_SYNC_TIMEOUT_SECONDS", "180"))
+SCRAPER_ASYNC_TIMEOUT_SECONDS = int(os.getenv("SCRAPER_ASYNC_TIMEOUT_SECONDS", "180"))
+LS_LIST_TIMEOUT_SECONDS = int(os.getenv("LS_LIST_TIMEOUT_SECONDS", "300"))
+LS_DETAIL_TIMEOUT_SECONDS = int(os.getenv("LS_DETAIL_TIMEOUT_SECONDS", "300"))
 SCRAPER_HEALTH_ERRORS = []
 
 # 모듈별 stale 임계값 오버라이드 (예: "TOSSinvest_checkNewArticle=30,OtherScraper=14")
@@ -227,63 +230,59 @@ async def daily_send_report(date_str=None):
             await db.daily_update_data(date_str=date_str, fetched_rows=rows, type='send')
             logger.success("Daily report sent and DB updated.")
 
-def run_sync_scrapers(sync_funcs, total_data):
+async def run_sync_scrapers(sync_funcs, total_data):
     for func in sync_funcs:
         try:
             logger.info(f"Scraping (Sync): {func.__name__}")
-            res = func()
+            res = await asyncio.wait_for(
+                asyncio.to_thread(func),
+                timeout=SCRAPER_SYNC_TIMEOUT_SECONDS,
+            )
             if res:
                 total_data.extend(res)
             log_scraper_health(func.__name__, res)
-            time.sleep(1)
+            await asyncio.sleep(1)
+        except asyncio.TimeoutError:
+            msg = f"Sync Scraper Timeout ({func.__name__}): {SCRAPER_SYNC_TIMEOUT_SECONDS}s"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
         except Exception as e:
             msg = f"Sync Scraper Error ({func.__name__}): {e}"
             SCRAPER_HEALTH_ERRORS.append(msg)
             logger.error(msg)
 
+
+async def call_async_scraper(func):
+    name = func.__name__
+    try:
+        res = func()
+        if asyncio.iscoroutine(res):
+            res = await asyncio.wait_for(res, timeout=SCRAPER_ASYNC_TIMEOUT_SECONDS)
+        return name, res, None
+    except asyncio.TimeoutError:
+        return name, None, f"Async Scraper Timeout ({name}): {SCRAPER_ASYNC_TIMEOUT_SECONDS}s"
+    except Exception as e:
+        return name, None, f"Async Scraper Error ({name}): {e}"
+
+
 async def run_async_scrapers(async_funcs, total_data):
     logger.info(f"Launching {len(async_funcs)} async scrapers...")
     tasks = []
-    task_names = []
     
     for f in async_funcs:
-        try:
-            if not callable(f):
-                continue
-            
-            # 함수를 일단 호출해봅니다.
-            res = f()
-            
-            # 호출 결과가 코루틴(awaitable)인 경우에만 tasks에 추가
-            if asyncio.iscoroutine(res):
-                tasks.append(res)
-                task_names.append(f.__name__)
-            # 호출 결과가 이미 리스트인 경우 (동기 함수처럼 동작한 경우) 즉시 처리
-            elif isinstance(res, list):
-                total_data.extend(res)
-                log_scraper_health(f.__name__, res)
-            # 그 외의 경우 (None 등)
-            elif res is not None:
-                msg = f"{f.__name__} returned unexpected type: {type(res)}"
-                SCRAPER_HEALTH_ERRORS.append(msg)
-                logger.error(msg)
-                
-        except Exception as e:
-            msg = f"Error calling scraper {f.__name__}: {e}"
-            SCRAPER_HEALTH_ERRORS.append(msg)
-            logger.error(msg)
+        if not callable(f):
+            continue
+        tasks.append(call_async_scraper(f))
 
     if not tasks:
         return
 
-    logger.debug(f"Gathering {len(tasks)} actual coroutines: {task_names}")
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    for idx, res in enumerate(results):
-        name = task_names[idx]
-        if isinstance(res, Exception):
-            msg = f"Async Scraper Error ({name}): {res}"
-            SCRAPER_HEALTH_ERRORS.append(msg)
-            logger.error(msg)
+    logger.debug(f"Gathering {len(tasks)} scraper tasks")
+    results = await asyncio.gather(*tasks)
+    for name, res, error in results:
+        if error:
+            SCRAPER_HEALTH_ERRORS.append(error)
+            logger.error(error)
         elif isinstance(res, list):
             total_data.extend(res)
             log_scraper_health(name, res)
@@ -298,10 +297,28 @@ async def main(date_str=None):
     db = get_db()
     
     # ── LS증권: 목록 2p 스크래핑 → DB 키 비교 → 신규만 detail ──
-    ls_articles = LS_checkNewArticle()
+    try:
+        ls_articles = await asyncio.wait_for(
+            asyncio.to_thread(LS_checkNewArticle),
+            timeout=LS_LIST_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        ls_articles = []
+        msg = f"LS Scraper Timeout (LS_checkNewArticle): {LS_LIST_TIMEOUT_SECONDS}s"
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
     if ls_articles:
         logger.info(f"[LS] 신규 {len(ls_articles)}건 detail 추출 시작")
-        enriched = await LS_detail(ls_articles, db=db)
+        try:
+            enriched = await asyncio.wait_for(
+                LS_detail(ls_articles, db=db),
+                timeout=LS_DETAIL_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            enriched = []
+            msg = f"LS Detail Timeout (LS_detail): {LS_DETAIL_TIMEOUT_SECONDS}s"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
         for a in enriched:
             if a.get("telegram_url"):
                 total_data.append(a)
@@ -327,7 +344,7 @@ async def main(date_str=None):
         Yuanta_checkNewArticle # 비동기 버전 (명칭 표준화됨)
     ]
 
-    run_sync_scrapers(sync_funcs, total_data)
+    await run_sync_scrapers(sync_funcs, total_data)
     await run_async_scrapers(async_functions, total_data)
 
     if total_data:
