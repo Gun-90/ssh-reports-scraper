@@ -5,7 +5,6 @@ ENV PYTHONUNBUFFERED=1
 # 2. 필수 시스템 패키지 설치
 RUN apt-get update && apt-get install -y \
     wget \
-    libaio1t64 \
     ca-certificates \
     rclone \
     chromium \

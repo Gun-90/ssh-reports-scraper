@@ -8,16 +8,14 @@ from dotenv import load_dotenv
 # 프로젝트 루트 경로 추가 (run 폴더의 상위 경로)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models.SQLiteManager import SQLiteManager
-from models.OracleManager import OracleManager
+from models.PostgreSQLManager import PostgreSQLManager
 from models.GeminiManager import GeminiManager
 from utils.file_util import download_file_wget
 
 async def run_batch_summary(batch_limit=10):
     print(f"🚀 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AI 요약 배치 작업을 시작합니다...")
     
-    db_manager = SQLiteManager()
-    oracle_manager = OracleManager()
+    db_manager = PostgreSQLManager()
 
     # 요약이 없는 최신 레포트 목록 조회
     pending_reports = await db_manager.fetch_pending_summary_reports(limit=batch_limit)
@@ -72,24 +70,16 @@ async def run_batch_summary(batch_limit=10):
                     break
             
             if summary_result:
-                # 3. DB 업데이트 (telegram_url 기준, 발송 완료된 최신 레코드만)
+                # 3. PostgreSQL 업데이트 (telegram_url 기준, 발송 완료된 최신 레코드만)
                 target_url = report.get('telegram_url') or report.get('download_url')
                 
-                # SQLite 업데이트
                 await db_manager.update_report_summary_by_telegram_url(
                     telegram_url=target_url,
                     summary=summary_result['summary'],
                     model_name=summary_result['model']
                 )
                 
-                # Oracle 업데이트
-                await oracle_manager.update_report_summary_by_telegram_url(
-                    telegram_url=target_url,
-                    summary=summary_result['summary'],
-                    model_name=summary_result['model']
-                )
-                
-                print(f"✨ 요약 완료 및 SQLite/Oracle 저장 성공! (URL 기준)")
+                print(f"✨ 요약 완료 및 PostgreSQL 저장 성공! (URL 기준)")
                 success_count += 1
             else:
                 fail_count += 1

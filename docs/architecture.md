@@ -37,10 +37,10 @@ PostgreSQL (tbl_sec_reports)      ← DB_BACKEND=postgres (운영 중)
 |---|---|
 | `scraper.py` | 28개 증권사 스크래핑 스케줄러 |
 | `modules/` | 증권사별 스크래퍼 (LS, 삼성, KB 등) |
-| `models/db_factory.py` | DB_BACKEND 기반 팩토리 (SQLite ↔ PostgreSQL) |
+| `models/db_factory.py` | 운영 기본 PostgreSQL 팩토리. SQLite는 레거시/검증용 |
 | `models/PostgreSQLManager.py` | PostgreSQL CRUD |
 | `models/PostgreSQLManagerV2.py` | PostgreSQL 소문자 스키마 검증용 CRUD |
-| `models/SQLiteManager.py` | SQLite CRUD (레거시 호환/롤백용) |
+| `models/SQLiteManager.py` | SQLite CRUD (레거시/마이그레이션 검증용) |
 | `models/FirmInfo.py` | 증권사/게시판 메타 정보 (DB 기반 동적 로드) |
 | `models/ConfigManager.py` | 환경별 설정 중앙화 (싱글톤) |
 | `models/WebScraper.py` | HTTP/Selenium 공통 스크래퍼 |
@@ -102,3 +102,4 @@ PostgreSQL (tbl_sec_reports)      ← DB_BACKEND=postgres (운영 중)
   - [x] **ADR-005** PostgREST 배포 + 프론트엔드 엔드포인트 교체
   - [x] **ADR-006** pytest 기반 테스트 코드 도입 (Makefile 연동 완료)
   - [x] **운영 표준화** secrets/env 생성 및 CI/CD 호출 방식 통일 (Makefile 및 secrets-env-standardization.md 가이드 완료)
+  - [x] **ADR-005** Oracle ATP 제거 및 레거시 코드 archive 격리

@@ -6,6 +6,13 @@
 
 ## 운영 변경 기록
 
+### 2026-06-03 — Oracle 레거시 경로 archive 격리
+
+- **Oracle 제거**: 운영 코드에서 Oracle 의존성을 제거하고 `oracledb`/Oracle client 패키지를 빌드 경로에서 제외했습니다.
+- **레거시 보존**: `OracleManager`, `DataManager`, SQLite→Oracle 마이그레이션, 구형 local worker는 `archive/oracle_sqlite_legacy/` 아래로 이동했습니다.
+- **AI 요약 배치 정리**: `run/gemini_summary_batch.py`를 PostgreSQL 전용 업데이트 경로로 전환했습니다.
+- **SQLite 지위 정리**: SQLite는 최신 운영 롤백 수단이 아니라 레거시/검증/마이그레이션 보조 경로로만 유지합니다.
+
 ### 2026-06-03 — 운영 보정 스크립트 정리
 
 - **백필 실행 파일 위치 정리**: `scripts/heungkuk_backfill.py`, `scripts/koreainvestment_backfill.py`를 실행용 디렉터리인 `run/`으로 이동했습니다.

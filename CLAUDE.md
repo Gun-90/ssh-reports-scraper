@@ -21,9 +21,9 @@ scraper.py (스케줄러)
 ## 필독: 작업 전 체크리스트
 
 1. **URL을 코드에 직접 쓰지 말 것** — 모든 TARGET_URL은 `~/secrets/ssh-reports-scraper/secrets.json`의 `urls` 섹션에서 관리 (Ghost Mode / ADR-003)
-2. **DB는 반드시 `db_factory.get_db()` 사용** — `SQLiteManager` / `PostgreSQLManager`를 직접 인스턴스화하지 않음
+2. **운영 DB는 반드시 PostgreSQL 사용** — 신규 코드에서는 `db_factory.get_db()` 또는 `PostgreSQLManager`를 사용
 3. **`secrets.json`에 불필요한 키를 추가하지 말 것** — `common` 섹션은 `generate_env.py`가 실제로 쓰는 키만 존재
-4. **`OracleManager` / Oracle 관련 코드를 건드리지 말 것** — ADR-005에서 제거 예정, 현재 비활성
+4. **Oracle 경로는 archive 전용** — 운영/신규 코드에서 OracleManager를 참조하지 않음
 5. **.env는 자동 생성** — `python3 ~/secrets/generate_env.py "$PWD"`로 생성. 직접 편집하지 않음
 6. **`.env` 갱신 원칙** — 워크스페이스별 `.env`는 `python3 ~/secrets/generate_env.py "$PWD"` 또는 `make env`가 표준이며, 변경이 필요하면 먼저 `~/secrets/**/secrets.json` 또는 `~/secrets/infra/secrets.json`을 확인할 것. 배포 시에는 `~/secrets/deploy_prepare.py`가 자동 처리.
 
@@ -36,7 +36,7 @@ scraper.py (스케줄러)
 | `scraper.py` | 메인 스케줄러 · 진입점 |
 | `modules/{Name}_{N}.py` | 증권사별 스크래퍼 (N=0~27) |
 | `models/ConfigManager.py` | 환경설정 싱글톤. `config.get_urls(key)`로 URL 취득 |
-| `models/db_factory.py` | `DB_BACKEND` 환경변수로 SQLite/PostgreSQL 전환 |
+| `models/db_factory.py` | 운영 기본 PostgreSQL 팩토리. SQLite는 레거시/검증용 |
 | `models/PostgreSQLManager.py` | 운영 DB (tbl_sec_reports) CRUD |
 | `models/FirmInfo.py` | 증권사 메타 정보 — DB에서 동적 로드 |
 | `utils/telegram_util.py` | 텔레그램 전송 유틸리티 |
@@ -103,10 +103,10 @@ TARGET_URL = "https://www.samsungpop.com/..."
 | 변수 | 값 | 의미 |
 |---|---|---|
 | `DB_BACKEND` | `postgres` | 운영 (PostgreSQL) |
-| `DB_BACKEND` | `sqlite` | 롤백용 |
+| `DB_BACKEND` | `sqlite` | 레거시/검증용. 운영 롤백 수단으로 간주하지 않음 |
 | `ENV` | `prod` / `dev` | ConfigManager 환경 분기 |
 
-롤백 방법: `.env`의 `DB_BACKEND=sqlite`로 변경 → 컨테이너 재시작
+운영 롤백은 PostgreSQL 백업/복구 또는 이전 컨테이너 이미지로 처리한다. SQLite는 현재 이원화 쓰기를 하지 않으므로 최신 데이터 롤백 수단이 아니다.
 
 ---
 
@@ -119,7 +119,7 @@ TARGET_URL = "https://www.samsungpop.com/..."
 | ADR-003 | Ghost Mode — URL을 secrets.json으로 격리 | 완료 |
 | ADR-004 | SQLite → PostgreSQL 마이그레이션 (DB_BACKEND=postgres) | 완료 |
 | ADR-004B | PostgreSQL V2 소문자 스키마 검증 중 | 검증 중 |
-| ADR-005 | Oracle ATP 제거 | 미착수 — OracleManager 건드리지 말 것 |
+| ADR-005 | Oracle ATP 제거 | 완료 — Oracle/SQLite 동기화 코드는 `archive/oracle_sqlite_legacy/`로 격리 |
 | ADR-006 | pytest 테스트 도입 | 진행 중 |
 | ADR-007 | 텔레그램 시스템 알림 | 완료 |
 
@@ -130,7 +130,7 @@ TARGET_URL = "https://www.samsungpop.com/..."
 ## 하면 안 되는 것
 
 - `secrets.json`의 `common`에 `API_URL_*`, `*_BASE`, `*_LIST_PATH`, `*_PARAM_*` 같은 분해된 URL 키를 추가하지 말 것 (Gemini가 추가해서 문제가 된 전례 있음)
-- `OracleManager`를 새 코드에서 참조하지 말 것
+- `archive/oracle_sqlite_legacy/` 아래 코드를 운영 경로에서 import하지 말 것
 - `.env`를 직접 편집하지 말 것 — `generate_env.py`로 재생성할 것
 - `.env`가 어긋나 보이면 먼저 `python3 ~/secrets/generate_env.py "$PWD"`를 다시 실행하고, 그 다음 `POSTGRES_*` / `SQLITE_DB_PATH`가 기대값인지 확인할 것. 배포 서버라면 `deploy_prepare.py`가 처리했는지 확인.
 - `docs/architecture.md`의 ADR에 반하는 설계 변경을 하지 말 것
