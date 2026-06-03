@@ -19,7 +19,7 @@ def run_job():
         env["RUN_ONCE"] = "true"
 
         result = subprocess.run(
-            ["uv", "run", "run/keyword_alert.py"],
+            [sys.executable, "run/keyword_alert.py"],
             env=env,
             check=False
         )
