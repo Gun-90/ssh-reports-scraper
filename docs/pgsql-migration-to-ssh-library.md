@@ -155,12 +155,56 @@ RUN --mount=from=ssh_library,target=/tmp/ssh-library
 
 - `liante0904/ssh-library`에 read-only deploy key `ssh-reports-scraper-ci-readonly` 등록 완료
 - `liante0904/ssh-reports-scraper` Actions secret `SSH_LIBRARY_DEPLOY_KEY` 등록 완료
+- GitHub Actions run `26887000945`에서 private checkout, Docker build/push, SSH deploy 성공
+- 운영 컨테이너 이미지 revision: `7b8d7adbdc90b37ebf2d1a1945ca261c33ade1a8`
+- 운영 컨테이너 내부 import smoke 성공:
+
+```text
+ssh-library import OK: SecReportsManager
+```
+
+- 운영 컨테이너 내부 read-only DB smoke 성공:
+
+```text
+default backend: models.PostgreSQLManager (283061, '2026-06-02T18:54:46.000610')
+ssh_library backend: ssh_library.reports SecReportsManager (283061, '2026-06-02T18:54:46.000610')
+```
+
+### 2026-06-03 Runtime 보정
+
+초기 Docker image 포함 배포는 성공했지만, 컨테이너 command가 `uv run scheduler.py`라서 런타임에 `uv`가 root-owned `.venv`를 재동기화하려다 권한 오류로 restart loop가 발생했다.
+
+해결:
+
+- Dockerfile CMD를 `.venv/bin/python scheduler.py`로 변경
+- keyword alert compose command도 `.venv/bin/python scheduler_keyword_alert.py`로 변경
+- deploy smoke도 `uv run python` 대신 `.venv/bin/python`으로 변경
+
+원칙:
+
+- image build 시점에는 `uv sync`와 `uv pip install`을 사용한다.
+- 컨테이너 런타임에서는 `.venv/bin/python`만 실행한다.
+- 운영 컨테이너 안에서 `uv run`을 실행하지 않는다.
+
+### 2026-06-03 Factory 소비자 정리
+
+운영 기본값은 아직 `DB_BACKEND=postgres`이므로 반환 타입은 기존 `models.PostgreSQLManager` 그대로다. 다만 전환 누락을 줄이기 위해 직접 `PostgreSQLManager()`를 생성하던 run script들을 `models.db_factory.get_db()` 경유로 정리했다.
+
+- `run/keyword_alert.py`
+- `run/tag_extraction_batch.py`
+- `run/gemini_summary_batch.py`
+- `run/fix_yesterday_send_status.py`
+
+검증:
+
+- `rg "from models.PostgreSQLManager|PostgreSQLManager\\(" run scripts enricher scraper.py modules -n` 결과 없음
+- `make test-imports`: 34 passed
 
 주의:
 
 - 이 단계는 image에 library를 넣을 수 있게 한 준비 작업이다.
 - 운영 `.env`의 `DB_BACKEND`는 아직 `postgres`로 둔다.
-- `DB_BACKEND=ssh_library` 전환은 이미지 안에서 `python -c "from ssh_library import SecReportsManager"` smoke가 성공한 뒤 진행한다.
+- `DB_BACKEND=ssh_library` 전환은 별도 커밋/배포로 진행한다. 이미 import/read-only smoke는 통과했지만, 첫 쓰기 전환은 실행 시간대를 골라 로그를 보면서 진행한다.
 
 ### 롤백 절차
 ```bash

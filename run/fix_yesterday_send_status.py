@@ -6,10 +6,10 @@ from loguru import logger
 # 상위 디렉터리를 모듈 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models.PostgreSQLManager import PostgreSQLManager
+from models.db_factory import get_db
 
 def reset_yesterday_status():
-    db = PostgreSQLManager()
+    db = get_db()
     
     # 오늘이 2026-04-26이므로 어제는 2026-04-25입니다.
     # 만약 실행 시점의 실제 어제를 구하고 싶다면 아래와 같이 설정합니다.
@@ -22,8 +22,9 @@ def reset_yesterday_status():
     
     # PostgreSQL 쿼리 실행
     # "main_ch_send_yn"을 'N'으로 변경하여 재발송 대상으로 만듭니다.
+    table_name = getattr(db, "MAIN_TABLE", getattr(db, "table_name", "tbl_sec_reports"))
     sql = f"""
-        UPDATE {db.MAIN_TABLE}
+        UPDATE {table_name}
         SET "main_ch_send_yn" = 'N'
         WHERE DATE("save_time") = %s
     """

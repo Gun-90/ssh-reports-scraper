@@ -13,13 +13,13 @@ setup_logger("send_report_by_keyword_to_user")
 
 from utils.sqlite_util import convert_sql_to_telegram_messages
 from utils.telegram_util import sendMarkDownText
-from models.PostgreSQLManager import PostgreSQLManager
+from models.db_factory import get_db
 
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET')
 INTERVAL = int(os.getenv('INTERVAL', '1800'))
 
-pg_manager = PostgreSQLManager()
+pg_manager = get_db()
 
 def _validate_config():
     """서비스 시작 전 필수 환경변수 검증"""

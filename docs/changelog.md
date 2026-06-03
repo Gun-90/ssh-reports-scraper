@@ -27,6 +27,13 @@
 - **MVP 기능**: SQLite schema inspect, PostgreSQL DDL 생성, batch copy, count/sample compare, one-shot `all` 명령을 제공합니다.
 - **분리 전략**: 현재는 내부 도구로 검증하고, 안정화되면 별도 public repo/PyPI 패키지로 분리할 수 있는 구조입니다.
 
+### 2026-06-03 — ssh-library Docker 연결 및 factory 전환 준비
+
+- **private library 이미지 포함**: GitHub Actions에서 `liante0904/ssh-library`를 read-only deploy key로 checkout한 뒤 BuildKit named context로 Docker image에 설치하도록 구성했습니다.
+- **런타임 권한 문제 보정**: 컨테이너 실행 command를 `uv run`에서 `.venv/bin/python`으로 변경해 root-owned `.venv` 재동기화로 인한 restart loop를 막았습니다.
+- **운영 smoke 완료**: 배포 run `26887000945` 성공, 운영 컨테이너에서 `ssh_library.SecReportsManager` import 및 read-only DB query를 확인했습니다.
+- **factory 소비자 정리**: keyword alert, tag extraction, gemini summary, send-status 보정 스크립트가 직접 `PostgreSQLManager()` 대신 `models.db_factory.get_db()`를 사용합니다. 운영 기본값은 아직 `DB_BACKEND=postgres`입니다.
+
 ### 2026-06-03 — Oracle 레거시 경로 archive 격리
 
 - **Oracle 제거**: 운영 코드에서 Oracle 의존성을 제거하고 `oracledb`/Oracle client 패키지를 빌드 경로에서 제외했습니다.

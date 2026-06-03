@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 # 프로젝트 루트 경로 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models.PostgreSQLManager import PostgreSQLManager
+from models.db_factory import get_db
 from enricher import TagExtractionManager
 
 
@@ -30,7 +30,7 @@ async def run_batch_tag_extraction(batch_limit=20):
     print(f"🏷️  [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 태그 추출 배치 작업 시작...")
     print(f"   배치 크기: {batch_limit}")
 
-    db = PostgreSQLManager()
+    db = get_db()
     tag_manager = TagExtractionManager()
 
     # ── 1) 태그 없는 레포트 조회 ──
