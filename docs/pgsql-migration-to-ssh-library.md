@@ -84,9 +84,49 @@
 - 모든 소비 코드(`scraper.py`, 모듈들, run 스크립트)는 변경 없음
 - 배포 후 `daily_send_report`, `keyword_alert` 등 주요 기능 smoke test
 
+**상태:** 부분 진행. `DB_BACKEND=ssh_library` opt-in 경로를 추가해 로컬/서버에서 `SecReportsManager` smoke test를 할 수 있게 했다. 기본 운영값(`DB_BACKEND=postgres`)은 아직 기존 `models.PostgreSQLManager`를 반환한다.
+
+### 2026-06-03 Phase 2 opt-in 내용
+
+- `models/db_factory.py`에 `DB_BACKEND=ssh_library` 분기 추가
+- `ssh_library.SecReportsManager`가 import 가능할 때만 사용
+- Docker/GitHub Actions 이미지에는 아직 `ssh-library`를 포함하지 않음
+- `tests/test_db_factory.py`로 기본 backend와 opt-in backend를 검증
+- `make test-imports`에 db factory test 추가
+
+### 2026-06-03 read-only smoke 결과
+
+아래 두 경로 모두 같은 DB에 read-only query가 성공했다.
+
+- 기존 경로: `models.PostgreSQLManager`
+- opt-in 경로: `DB_BACKEND=ssh_library` + `ssh_library.SecReportsManager`
+
+검증 쿼리:
+
+```sql
+SELECT COUNT(*)::int AS count, MAX(save_time)::text AS latest_save_time
+FROM tbl_sec_reports;
+```
+
+결과는 두 경로 모두 동일했다.
+
+```text
+count=283061
+latest_save_time=2026-06-02T18:54:46.000610
+```
+
+### Phase 2 남은 결정
+
+- private `ssh-library`를 Docker image에 넣는 방식 결정
+  - 후보 A: GitHub Actions에서 `ssh-library`를 checkout한 뒤 Docker build context에 포함
+  - 후보 B: GHCR base image 또는 wheel artifact로 배포
+  - 후보 C: repo를 public/package로 전환 후 git/PyPI dependency 사용
+- 이미지에 library가 포함된 뒤에만 운영 `DB_BACKEND`를 `ssh_library`로 변경
+
 ### 롤백 절차
 ```bash
-git checkout models/db_factory.py
+DB_BACKEND=postgres
+# 또는 git revert <db_factory 전환 커밋>
 # 또는 이전 버전으로 복원
 ```
 

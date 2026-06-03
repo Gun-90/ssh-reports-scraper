@@ -46,7 +46,7 @@ test:
 
 ## 네트워크 호출 없는 모듈 import/config 가드 테스트
 test-imports:
-	uv run pytest tests/test_config_manager.py tests/test_scraper_imports.py -q
+	uv run pytest tests/test_config_manager.py tests/test_db_factory.py tests/test_scraper_imports.py -q
 
 ## 린트 체크 (표준 인터페이스)
 lint:
