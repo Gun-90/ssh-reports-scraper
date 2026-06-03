@@ -54,4 +54,5 @@ RUN mkdir -p /log && chown -R appuser:appgroup /log
 USER appuser
 
 # 10. 기본 실행 명령 (스케줄러 실행)
-CMD ["uv", "run", "scheduler.py"]
+# 런타임에서 uv run을 쓰면 appuser 권한으로 .venv 동기화를 시도할 수 있다.
+CMD [".venv/bin/python", "scheduler.py"]

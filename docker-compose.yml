@@ -56,7 +56,7 @@ services:
       - LOG_BASE_DIR=/log
       - TZ=Asia/Seoul
       - POSTGRES_HOST=localhost
-    command: ["uv", "run", "scheduler_keyword_alert.py"]
+    command: [".venv/bin/python", "scheduler_keyword_alert.py"]
     logging:
       driver: "json-file"
       options:

@@ -174,7 +174,7 @@ jobs:
 
             if [ "${SSH_LIBRARY_ENABLED:-false}" = "true" ]; then
               docker exec ssh-reports-scraper-main-scraper-prod \
-                uv run python -c "from ssh_library import SecReportsManager; print('ssh-library import OK:', SecReportsManager.__name__)"
+                .venv/bin/python -c "from ssh_library import SecReportsManager; print('ssh-library import OK:', SecReportsManager.__name__)"
             else
               echo "ssh-library vendor checkout disabled; import smoke skipped"
             fi
