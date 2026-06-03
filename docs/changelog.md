@@ -6,6 +6,12 @@
 
 ## 운영 변경 기록
 
+### 2026-06-03 — 운영 보정 스크립트 정리
+
+- **백필 실행 파일 위치 정리**: `scripts/heungkuk_backfill.py`, `scripts/koreainvestment_backfill.py`를 실행용 디렉터리인 `run/`으로 이동했습니다.
+- **PDF URL 보정 도구 추가**: 대신/현대차/IBK/IM/교보/메리츠/SK/유안타 및 통합 보정 스크립트를 `run/`에 추가했습니다. DB 업데이트를 수행하므로 운영에서 수동 실행하는 도구입니다.
+- **LS URL 진단 도구 추가**: `tests/diagnose_ls_urls.py`로 LS fallback URL 상태를 샘플링/진단할 수 있게 했습니다.
+
 ### 2026-05-27 — Scraper Health Check 긴급 대응 (DBfi, BNK, TOSS)
 
 - **DBfi 도메인 마이그레이션**: DB금융투자 API 도메인이 `m.db-fi.com` → `m.dbsec.co.kr`로 변경됨.
