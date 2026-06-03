@@ -17,8 +17,9 @@ def run_scraper():
     logger.info("--- [Job Start] Main Scraper (scraper.py) ---")
     try:
         # uv run scraper.py 실행 (출력 캡처)
+        # 권한 문제 예방 및 오버헤드 방지를 위해 현재 실행 중인 가상환경 파이썬 인터프리터를 직접 호출합니다.
         result = subprocess.run(
-            ["uv", "run", "scraper.py"],
+            [sys.executable, "scraper.py"],
             capture_output=True,
             text=True,
             check=False

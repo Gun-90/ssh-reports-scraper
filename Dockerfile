@@ -35,7 +35,8 @@ RUN --mount=from=ssh_library,target=/tmp/ssh-library \
       uv pip install --python .venv/bin/python /tmp/ssh-library; \
     else \
       echo "Skipping ssh-library install"; \
-    fi
+    fi && \
+    chown -R appuser:appgroup /app/.venv
 
 # 7. 필요한 소스 코드 복사
 COPY --chown=appuser:appgroup run/ ./run/
