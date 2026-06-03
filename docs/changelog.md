@@ -6,6 +6,12 @@
 
 ## 운영 변경 기록
 
+### 2026-06-03 — sqlite-pg-cutover 오픈소스 후보 추가
+
+- **SQLite→PostgreSQL 딸각툴 초안**: `tools/sqlite-pg-cutover/`에 독립 Python 패키지 형태의 cutover CLI를 추가했습니다.
+- **MVP 기능**: SQLite schema inspect, PostgreSQL DDL 생성, batch copy, count/sample compare, one-shot `all` 명령을 제공합니다.
+- **분리 전략**: 현재는 내부 도구로 검증하고, 안정화되면 별도 public repo/PyPI 패키지로 분리할 수 있는 구조입니다.
+
 ### 2026-06-03 — Oracle 레거시 경로 archive 격리
 
 - **Oracle 제거**: 운영 코드에서 Oracle 의존성을 제거하고 `oracledb`/Oracle client 패키지를 빌드 경로에서 제외했습니다.
