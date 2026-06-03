@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: check-url-leaks
+        name: Check staged URL leaks
+        entry: python3 scripts/check_url_leaks.py
+        language: system
+        pass_filenames: false

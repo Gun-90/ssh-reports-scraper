@@ -47,6 +47,13 @@ BOARD_NAMES = [
     "기업분석", "산업분석", "투자전략", "Quant", "Credit",
     "해외주식", "시황", "Small cap", "계량분석", "파생",
 ]
+LS_PUBLIC_ORIGIN = os.getenv("LS_PUBLIC_ORIGIN", "https://www.ls-sec.co.kr")
+LS_HOME_URL = f"{LS_PUBLIC_ORIGIN}/"
+LS_FRONT_BOARD_PREFIX = f"{LS_PUBLIC_ORIGIN}/EtwFrontBoard/"
+LS_UPLOAD_PREFIX = f"{LS_PUBLIC_ORIGIN}/upload/EtwBoardData"
+LS_MSG_ORIGIN = os.getenv("LS_MSG_ORIGIN", "https://msg.ls-sec.co.kr")
+LS_MSG_PREFIX = f"{LS_MSG_ORIGIN}/"
+LS_MSG_EUM_PREFIX = f"{LS_MSG_ORIGIN}/eum"
 
 HEADERS = {
     "User-Agent": (
@@ -56,7 +63,7 @@ HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Referer": "https://www.ls-sec.co.kr/",
+    "Referer": LS_HOME_URL,
 }
 
 DETAIL_HEADERS = {
@@ -85,7 +92,7 @@ def upload_filename_to_cdn_url(filename: str) -> Optional[str]:
     m = re.match(r"^(\d+)_(\d+)_(\d{8})\.", basename)
     if m:
         emp_id, seq, date_str = m.group(1), m.group(2), m.group(3)
-        return f"https://msg.ls-sec.co.kr/eum/K_{date_str}_{emp_id}_{seq}.pdf"
+        return f"{LS_MSG_EUM_PREFIX}/K_{date_str}_{emp_id}_{seq}.pdf"
     return None
 
 
@@ -93,7 +100,7 @@ def make_fallback_url(attach_file_name: str, reg_dt: str) -> str:
     """upload/ fallback URL 생성"""
     url_param_0 = "B" + reg_dt[:6]
     safe_name = requests.utils.quote(attach_file_name)
-    return f"https://www.ls-sec.co.kr/upload/EtwBoardData/{url_param_0}/{safe_name}"
+    return f"{LS_UPLOAD_PREFIX}/{url_param_0}/{safe_name}"
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +158,7 @@ def scrape_list(max_pages: int = 2) -> list[dict]:
                         continue
 
                     raw_href = a_tag["href"].replace("amp;", "")
-                    article_url = "https://www.ls-sec.co.kr/EtwFrontBoard/" + raw_href
+                    article_url = LS_FRONT_BOARD_PREFIX + raw_href
                     key = clean_url(article_url).replace("&currPage=1", "")
 
                     if key in seen_keys:
@@ -330,7 +337,7 @@ def run_diagnostics():
     """네트워크 진단"""
     import socket
     print("=== Diagnostics ===", file=sys.stderr)
-    for url in [BOARD_URLS[0], "https://msg.ls-sec.co.kr/", "https://www.ls-sec.co.kr/"]:
+    for url in [BOARD_URLS[0], LS_MSG_PREFIX, LS_HOME_URL]:
         host = urlparse(url).hostname
         port = urlparse(url).port or 443
         try:
@@ -378,7 +385,7 @@ def main():
 
     # 해결된 URL 통계
     resolved = sum(1 for a in articles if a.get("telegram_url"))
-    cdn_resolved = sum(1 for a in articles if a.get("telegram_url", "").startswith("https://msg.ls-sec.co.kr/"))
+    cdn_resolved = sum(1 for a in articles if a.get("telegram_url", "").startswith(LS_MSG_PREFIX))
     print(f"[RESULT] resolved={resolved}/{len(articles)} (CDN={cdn_resolved})", file=sys.stderr)
 
     output = {

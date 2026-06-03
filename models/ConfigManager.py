@@ -2,6 +2,11 @@ import os
 import json
 from loguru import logger
 
+
+class MissingConfigError(ValueError):
+    """Required runtime configuration is missing from a loaded config source."""
+
+
 class ConfigManager:
     _instance = None
     _secrets = {}
@@ -74,25 +79,46 @@ class ConfigManager:
     def get_urls(self, key, default=None):
         """증권사 URL 목록 반환.
         우선순위: 1) env var `urls` JSON (generate_env.py) → 2) env var URLS_{key} → 3) secrets.json 직접 읽기
+
+        secrets/.env가 아예 없는 CI·dry-run 환경은 기존처럼 default/[]를 반환한다.
+        반대로 URL 설정 소스가 로드됐는데 요청한 key만 없으면 운영 설정 누락으로 보고 즉시 실패시킨다.
         """
+        config_source_loaded = False
+
         # 1) generate_env.py가 .env에 쓰는 urls 키 (전체 JSON)
         env_urls = os.getenv("urls")
         if env_urls:
+            config_source_loaded = True
             try:
                 all_urls = json.loads(env_urls)
                 if key in all_urls:
                     return all_urls[key]
-            except Exception:
-                pass
+            except json.JSONDecodeError as e:
+                raise MissingConfigError(f"Invalid urls JSON env var: {e}") from e
+
         # 2) 개별 URLS_{key} 환경변수
         env_val = os.getenv(f"URLS_{key}")
         if env_val:
+            config_source_loaded = True
             try:
                 return json.loads(env_val)
-            except Exception:
-                pass
+            except json.JSONDecodeError as e:
+                raise MissingConfigError(f"Invalid URLS_{key} JSON env var: {e}") from e
+
         # 3) secrets.json 직접 읽기 (현재 프로덕션)
-        return self._secrets.get("urls", {}).get(key, default if default is not None else [])
+        secret_urls = self._secrets.get("urls", {})
+        if secret_urls:
+            config_source_loaded = True
+            if key in secret_urls:
+                return secret_urls[key]
+
+        if default is not None:
+            return default
+
+        if config_source_loaded:
+            raise MissingConfigError(f"Missing urls config for key: {key}")
+
+        return []
 
     def get_base_url(self, key, default=""):
         """첫 번째 URL에서 scheme+netloc 추출."""

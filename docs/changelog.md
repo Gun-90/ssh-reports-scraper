@@ -6,6 +6,14 @@
 
 ## 운영 변경 기록
 
+### 2026-06-03 — 낮은 리스크 운영 정리
+
+- **SQLite 롤백 문구 정정**: README에서 SQLite 30초 롤백 표현을 제거하고, 운영 롤백은 PostgreSQL 백업/복구 또는 컨테이너/배포 롤백으로 처리한다고 명시했습니다.
+- **URL 설정 누락 가드**: `ConfigManager.get_urls()`가 `.env`/`secrets.json` 등 URL 설정 소스를 읽은 상태에서 특정 key만 없으면 `MissingConfigError`로 즉시 실패하도록 변경했습니다. secrets 자체가 없는 CI/dry-run 환경은 기존처럼 빈 목록을 허용합니다.
+- **LS URL 규칙 상수화**: LS 공개 도메인, CDN, upload fallback URL 생성 규칙을 상수로 모아 보드 URL secrets와 알고리즘 URL을 분리했습니다.
+- **모듈 import 가드**: fake URL config로 전체 scraper module import와 함수 존재 여부를 검증하는 `tests/test_scraper_imports.py`를 추가했습니다.
+- **URL leak pre-commit 가드**: `.pre-commit-config.yaml`과 `scripts/check_url_leaks.py`를 추가해 새로 staged 된 URL 중 allowlist 밖 도메인을 감지할 수 있게 했습니다.
+
 ### 2026-06-03 — sqlite-pg-cutover 오픈소스 후보 추가
 
 - **SQLite→PostgreSQL 딸각툴 초안**: `tools/sqlite-pg-cutover/`에 독립 Python 패키지 형태의 cutover CLI를 추가했습니다.

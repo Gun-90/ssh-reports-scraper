@@ -111,18 +111,18 @@ internal.management-hub (root)
 
 | # | 과제 | 파일 | 비고 |
 |---|------|------|------|
-| 1 | **ConfigManager URL fallback 개선** | `models/ConfigManager.py` | secrets.json 없을 때 `ValueError` raise 하도록 변경 (silent failure 방지) |
-| 2 | **FirmInfo 하드코딩 fallback 추가** | `models/FirmInfo.py` | DB 없을 때 기본 firm_names 리스트 내장 (GA/dry-run 지원) |
-| 3 | **LS_0.py URL 리팩토링** | `modules/LS_0.py` | `msg.ls-sec.co.kr`, `nls-sec.co.kr` 등 하드코딩 도메인 → secrets.json config로 이동 |
-| 4 | **standalone_ls_scraper BOARD_URLS** | `scripts/standalone_ls_scraper.py` | 10개 하드코딩 URL → `config.get_urls("LS_0")` 로 교체 |
+| 1 | **ConfigManager URL fallback 개선** | `models/ConfigManager.py` | 완료: URL 설정 소스가 있는데 key만 누락되면 `MissingConfigError`로 실패. secrets 자체가 없는 CI/dry-run은 빈 목록 허용 |
+| 2 | **FirmInfo 하드코딩 fallback 추가** | `models/FirmInfo.py` | 완료: DB 없을 때 기본 firm_names 리스트 내장 (GA/dry-run 지원) |
+| 3 | **LS_0.py URL 리팩토링** | `modules/LS_0.py` | 부분 완료: 보드 URL은 secrets 경유, 공개 도메인/CDN/upload 생성 규칙은 상수화 |
+| 4 | **standalone_ls_scraper BOARD_URLS** | `scripts/standalone_ls_scraper.py` | 완료: 10개 보드 URL은 `config.get_urls("LS_0")` 로 교체, 공개 도메인/CDN/upload 생성 규칙은 상수화 |
 
 ### 🟡 P1 — 안정성 개선
 
 | # | 과제 | 파일 | 비고 |
 |---|------|------|------|
 | 5 | **모듈 import 순서 표준화** | 전체 `modules/*.py` | `config`, `FirmInfo` import를 항상 최상단에 배치하는 lint 규칙 |
-| 6 | **pre-commit hook: URL leak detector** | `.pre-commit-config.yaml` | `https?://` 패턴 커밋 시 경고/차단 (secrets.json 경로 제외) |
-| 7 | **CI 파이프라인: 모듈 import test** | `.github/workflows/test.yml` | `python -c "from modules.X import checkNewArticle"` 전 모듈 검증 |
+| 6 | **pre-commit hook: URL leak detector** | `.pre-commit-config.yaml`, `scripts/check_url_leaks.py` | 완료: staged diff에서 allowlist 밖 신규 URL을 감지 |
+| 7 | **CI 파이프라인: 모듈 import test** | `tests/test_scraper_imports.py` | 완료: fake URL config로 전체 scraper module import 및 함수 존재 여부 검증 |
 | 8 | **scheduler health endpoint** | `scheduler.py` | `/health` 엔드포인트 또는 Telegram 알람 (scraper 실패 시 즉시 통보) |
 | 9 | **증권사 scraper 개별 타임아웃** | `scraper.py` | LS처럼 오래 걸리는 scraper가 전체를 blocking하지 않도록 분리 |
 

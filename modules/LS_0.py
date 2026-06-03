@@ -37,6 +37,15 @@ PROXIES = {
     'http': SOCKS_PROXY,
     'https': SOCKS_PROXY
 }
+LS_PUBLIC_ORIGIN = os.getenv("LS_PUBLIC_ORIGIN", "https://www.ls-sec.co.kr")
+LS_HOME_URL = f"{LS_PUBLIC_ORIGIN}/"
+LS_FRONT_BOARD_PREFIX = f"{LS_PUBLIC_ORIGIN}/EtwFrontBoard/"
+LS_UPLOAD_PREFIX = f"{LS_PUBLIC_ORIGIN}/upload/EtwBoardData"
+LS_MSG_ORIGIN = os.getenv("LS_MSG_ORIGIN", "https://msg.ls-sec.co.kr")
+LS_NLS_ORIGIN = os.getenv("LS_NLS_ORIGIN", "https://nls-sec.co.kr")
+LS_MSG_PREFIX = f"{LS_MSG_ORIGIN}/"
+LS_NLS_PREFIX = f"{LS_NLS_ORIGIN}/"
+LS_MSG_EUM_PREFIX = f"{LS_MSG_ORIGIN}/eum"
 
 def get_soup_with_warp(url, headers):
     global USE_WARP_ONLY
@@ -74,7 +83,7 @@ def LS_checkNewArticle(page=1, is_imported=False, skip_boards=None, max_pages=2)
     }
     for _ in range(3):
         try:
-            requests.get("https://www.ls-sec.co.kr/", headers=warm_headers,
+            requests.get(LS_HOME_URL, headers=warm_headers,
                          proxies=PROXIES, verify=False, timeout=20)
             logger.debug("LS WARP warm-up 완료")
             break
@@ -151,7 +160,7 @@ def LS_checkNewArticle(page=1, is_imported=False, skip_boards=None, max_pages=2)
                     if not a_tag: continue
 
                     raw_href = a_tag['href'].replace("amp;", "")
-                    LIST_ARTICLE_URL = 'https://www.ls-sec.co.kr/EtwFrontBoard/' + raw_href
+                    LIST_ARTICLE_URL = LS_FRONT_BOARD_PREFIX + raw_href
                     LIST_ARTICLE_URL = clean_url(LIST_ARTICLE_URL).replace("&currPage=1", "")
                     
                     title_text = a_tag.get_text().strip()
@@ -331,8 +340,8 @@ async def process_article(session: ClientSession, article: dict, headers: dict, 
                             pass
 
                 # 2순위: DB 기반 writer ID 추론
-                if not resolved_url or not (resolved_url.startswith('https://msg.ls-sec.co.kr/') or
-                                            resolved_url.startswith('https://nls-sec.co.kr/')):
+                if not resolved_url or not (resolved_url.startswith(LS_MSG_PREFIX) or
+                                            resolved_url.startswith(LS_NLS_PREFIX)):
                     db_url = await reconstruct_msg_url_from_db(article, headers)
                     if db_url:
                         resolved_url = db_url
@@ -370,7 +379,7 @@ async def LS_detail(articles, firm_info=None, db=None):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://www.ls-sec.co.kr/",
+        "Referer": LS_HOME_URL,
         "Connection": "keep-alive"
     }
 
@@ -409,7 +418,7 @@ async def LS_detailAll(articles=None, firm_info=None):
     for _ in range(3):
         try:
             await asyncio.to_thread(
-                lambda: requests.get("https://www.ls-sec.co.kr/", headers=warm_headers,
+                    lambda: requests.get(LS_HOME_URL, headers=warm_headers,
                                      proxies=PROXIES, verify=False, timeout=20)
             )
             logger.debug("LS_detail WARP warm-up 완료")
@@ -450,12 +459,12 @@ def upload_filename_to_cdn_url(upload_url_or_name: str) -> str | None:
     m = re.match(r'^(\d+)_(\d+)_(\d{8})\.', basename)
     if m:
         emp_id, seq, date_str = m.group(1), m.group(2), m.group(3)
-        return f"https://msg.ls-sec.co.kr/eum/K_{date_str}_{emp_id}_{seq}.pdf"
+        return f"{LS_MSG_EUM_PREFIX}/K_{date_str}_{emp_id}_{seq}.pdf"
     return None
 
 
 async def get_valid_url(new_filename, date_part, article, headers):
-    base_url = "https://msg.ls-sec.co.kr/eum/K_{filename}"
+    base_url = f"{LS_MSG_EUM_PREFIX}/K_{{filename}}"
     try:
         date_obj = datetime.strptime(date_part, "%Y%m%d")
     except ValueError:
@@ -508,7 +517,7 @@ async def create_fallback_url(article, soup=None):
     if attach_file_name:
         safe_name = urllib.parse.quote(attach_file_name)
         # EtwBoardData 앞에 EtwFrontBoard가 붙는 경우가 많음
-        fallback_url = f"https://www.ls-sec.co.kr/upload/EtwBoardData/{URL_PARAM_0}/{safe_name}"
+        fallback_url = f"{LS_UPLOAD_PREFIX}/{URL_PARAM_0}/{safe_name}"
         logger.debug(f"Fallback URL created: {fallback_url}")
         return fallback_url
     
@@ -633,7 +642,7 @@ async def reconstruct_msg_url_from_db(article, headers):
             # seq: 예상값 기준 ±50, 최소 1
             for seq_offset in range(-50, 51):
                 test_seq = max(1, est_seq + seq_offset)
-                test_url = f"https://msg.ls-sec.co.kr/eum/K_{test_date}_{writer_id}_{test_seq}.pdf"
+                test_url = f"{LS_MSG_EUM_PREFIX}/K_{test_date}_{writer_id}_{test_seq}.pdf"
                 candidates.append(test_url)
 
         # 중복 제거 (날짜*seq 조합이 중복될 수 있음)
