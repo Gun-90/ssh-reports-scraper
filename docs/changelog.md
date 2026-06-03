@@ -41,7 +41,7 @@
   - 키워드 DB 연결 정보(`POSTGRES_KEYWORD_DB`)가 없을 경우 메인 DB를 기본값으로 사용하도록 안정화했습니다.
   - 테이블 존재 여부 체크 로직에서 커서 에러 방지 코드를 추가했습니다.
 - **DBfi URL 처리 강화**: `secrets.json`의 키 구조 변화에 맞춰 `fix_dbfi_urls.py` 및 스케줄러 로직을 동기화했습니다.
-- **환경변수 생성 규칙 고정**: 워크스페이스 `.env`는 `python3 ~/secrets/generate_env.py scraper`로만 재생성하도록 문서화했습니다.
+- **환경변수 생성 규칙 고정**: 워크스페이스 `.env`는 프로젝트 루트에서 `python3 ~/secrets/generate_env.py` 또는 `make env`로 재생성하도록 문서화했습니다. `scraper` alias는 호환용으로만 유지합니다.
 - **URL/아카이브 정리**: `ATTACH_URL`, `ARCHIVE_PATH`, `retry_count` 등에 대한 코드 참조를 정리하고, 메시지 링크 우선순위를 `TELEGRAM_URL` 중심으로 통일했습니다.
 
 ### 2026-04-26 — ATTACH_URL 전수 제거 및 LS 로직 강화 완료
