@@ -123,6 +123,45 @@ latest_save_time=2026-06-02T18:54:46.000610
   - 후보 C: repo를 public/package로 전환 후 git/PyPI dependency 사용
 - 이미지에 library가 포함된 뒤에만 운영 `DB_BACKEND`를 `ssh_library`로 변경
 
+### 2026-06-03 Docker image 포함 방식
+
+추천안 A를 적용했다.
+
+```text
+GitHub Actions
+  ├─ checkout ssh-reports-scraper
+  ├─ mkdir vendor/ssh-library
+  ├─ SSH_LIBRARY_DEPLOY_KEY가 있으면 private ssh-library checkout
+  └─ docker buildx build
+       ├─ context=.
+       ├─ build-context ssh_library=./vendor/ssh-library
+       └─ build-arg INSTALL_SSH_LIBRARY=1 또는 0
+```
+
+Dockerfile은 BuildKit named context를 사용한다.
+
+```text
+RUN --mount=from=ssh_library,target=/tmp/ssh-library
+```
+
+- `INSTALL_SSH_LIBRARY=1`: `/tmp/ssh-library`를 현재 project venv에 설치
+- `INSTALL_SSH_LIBRARY=0`: 설치를 건너뛰고 기존 이미지 빌드 유지
+
+필요한 GitHub secret:
+
+- `SSH_LIBRARY_DEPLOY_KEY`: `liante0904/ssh-library` private repo를 읽을 수 있는 deploy key 또는 SSH private key
+
+2026-06-03 상태:
+
+- `liante0904/ssh-library`에 read-only deploy key `ssh-reports-scraper-ci-readonly` 등록 완료
+- `liante0904/ssh-reports-scraper` Actions secret `SSH_LIBRARY_DEPLOY_KEY` 등록 완료
+
+주의:
+
+- 이 단계는 image에 library를 넣을 수 있게 한 준비 작업이다.
+- 운영 `.env`의 `DB_BACKEND`는 아직 `postgres`로 둔다.
+- `DB_BACKEND=ssh_library` 전환은 이미지 안에서 `python -c "from ssh_library import SecReportsManager"` smoke가 성공한 뒤 진행한다.
+
 ### 롤백 절차
 ```bash
 DB_BACKEND=postgres

@@ -169,3 +169,4 @@ error_response.txt
 .env.bak
 .codex
 .codex/
+vendor/

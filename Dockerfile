@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # 1. Base Image
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
@@ -24,6 +25,17 @@ WORKDIR /app
 # 소유권을 appuser로 지정하여 파일 복사
 COPY --chown=appuser:appgroup pyproject.toml uv.lock ./ 
 RUN uv sync --frozen --no-cache
+
+# 6-1. 선택적 private ssh-library 설치
+# GitHub Actions/Compose에서 ssh_library named context를 넘기고
+# INSTALL_SSH_LIBRARY=1일 때만 현재 프로젝트 venv에 설치한다.
+ARG INSTALL_SSH_LIBRARY=0
+RUN --mount=from=ssh_library,target=/tmp/ssh-library \
+    if [ "$INSTALL_SSH_LIBRARY" = "1" ]; then \
+      uv pip install --python .venv/bin/python /tmp/ssh-library; \
+    else \
+      echo "Skipping ssh-library install"; \
+    fi
 
 # 7. 필요한 소스 코드 복사
 COPY --chown=appuser:appgroup run/ ./run/

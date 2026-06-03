@@ -9,6 +9,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/ssh-reports-scraper
+  SSH_LIBRARY_ENABLED: ${{ secrets.SSH_LIBRARY_DEPLOY_KEY != '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,6 +43,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Prepare optional vendor context
+        run: mkdir -p vendor/ssh-library
+
+      - name: Checkout private ssh-library
+        if: ${{ env.SSH_LIBRARY_ENABLED == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: liante0904/ssh-library
+          path: vendor/ssh-library
+          ssh-key: ${{ secrets.SSH_LIBRARY_DEPLOY_KEY }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -84,6 +96,10 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          build-contexts: |
+            ssh_library=./vendor/ssh-library
+          build-args: |
+            INSTALL_SSH_LIBRARY=${{ env.SSH_LIBRARY_ENABLED == 'true' && '1' || '0' }}
           platforms: linux/amd64, linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -103,11 +119,12 @@ jobs:
           PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
           REPO_NAME: ${{ github.event.repository.name }}
           REPO_OWNER: ${{ github.repository_owner }}
+          SSH_LIBRARY_ENABLED: ${{ env.SSH_LIBRARY_ENABLED }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: DEPLOY_KEYWORD_ALERT,EXPECTED_SHA,PROJECT_DIR,REPO_NAME,REPO_OWNER
+          envs: DEPLOY_KEYWORD_ALERT,EXPECTED_SHA,PROJECT_DIR,REPO_NAME,REPO_OWNER,SSH_LIBRARY_ENABLED
           script: |
             set -eu
             DEPLOY_KEYWORD_ALERT="${DEPLOY_KEYWORD_ALERT:-false}"
@@ -154,6 +171,13 @@ jobs:
               exit 1
             fi
             echo "main-scraper running revision: $RUNNING_SHA"
+
+            if [ "${SSH_LIBRARY_ENABLED:-false}" = "true" ]; then
+              docker exec ssh-reports-scraper-main-scraper-prod \
+                uv run python -c "from ssh_library import SecReportsManager; print('ssh-library import OK:', SecReportsManager.__name__)"
+            else
+              echo "ssh-library vendor checkout disabled; import smoke skipped"
+            fi
 
             # keyword-alert는 관련 파일 변경 시에만 재배포
             if [ "$DEPLOY_KEYWORD_ALERT" = "true" ]; then

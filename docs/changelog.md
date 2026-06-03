@@ -10,6 +10,7 @@
 
 - **ssh-library DB 공통화 opt-in**: `DB_BACKEND=ssh_library` 분기를 추가해 `SecReportsManager`를 smoke test할 수 있게 했습니다. 운영 기본값은 아직 기존 `PostgreSQLManager`입니다.
 - **DB 공통화 read-only smoke**: 기존 manager와 `SecReportsManager`가 `tbl_sec_reports` count/latest query에서 동일한 결과를 반환함을 확인했습니다.
+- **ssh-library Docker 준비**: private `ssh-library`를 GitHub Actions에서 optional vendor context로 checkout하고, `INSTALL_SSH_LIBRARY=1`일 때 Docker image에 설치할 수 있게 했습니다. 운영 `DB_BACKEND` 전환은 아직 하지 않았습니다.
 - **SQLite 롤백 문구 정정**: README에서 SQLite 30초 롤백 표현을 제거하고, 운영 롤백은 PostgreSQL 백업/복구 또는 컨테이너/배포 롤백으로 처리한다고 명시했습니다.
 - **URL 설정 누락 가드**: `ConfigManager.get_urls()`가 `.env`/`secrets.json` 등 URL 설정 소스를 읽은 상태에서 특정 key만 없으면 `MissingConfigError`로 즉시 실패하도록 변경했습니다. secrets 자체가 없는 CI/dry-run 환경은 기존처럼 빈 목록을 허용합니다.
 - **LS URL 규칙 상수화**: LS 공개 도메인, CDN, upload fallback URL 생성 규칙을 상수로 모아 보드 URL secrets와 알고리즘 URL을 분리했습니다.

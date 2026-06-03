@@ -3,7 +3,12 @@ services:
     platform: linux/arm64
     image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:${APP_ENV:-prod}
     container_name: ssh-reports-scraper-main-scraper-${APP_ENV:-prod}
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_SSH_LIBRARY: ${INSTALL_SSH_LIBRARY:-0}
+      additional_contexts:
+        ssh_library: ../../../../lib/ssh-library
     restart: unless-stopped
     network_mode: "host"
     env_file:
@@ -32,7 +37,12 @@ services:
     platform: linux/arm64
     image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:${APP_ENV:-prod}
     container_name: ssh-reports-scraper-keyword-alert-${APP_ENV:-prod}    
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_SSH_LIBRARY: ${INSTALL_SSH_LIBRARY:-0}
+      additional_contexts:
+        ssh_library: ../../../../lib/ssh-library
 
     restart: always
     network_mode: "host"
