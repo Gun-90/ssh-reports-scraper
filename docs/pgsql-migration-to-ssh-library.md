@@ -5,6 +5,15 @@
 현재 `ssh-reports-scraper` 프로젝트 내 `models/PostgreSQLManager.py`에 구현된 PostgreSQL 통신 로직을
 서버 공통 라이브러리 `~/lib/ssh-library/`의 `SecReportsManager`로 이전한다.
 
+## 2026-06-03 진행 기준
+
+- 관리자 화면에서 DB의 최신 저장일자를 이미 확인하고 있으므로, 별도 scheduler heartbeat보다 DB 공통화 작업을 먼저 진행한다.
+- 사이드이펙트를 줄이기 위해 scraper 런타임 전환은 뒤로 미룬다.
+- 이번 우선순위는 Phase 0~1이다.
+  - Phase 0: `ssh-library` import 가능 상태 확인 및 path dependency 준비
+  - Phase 1: 현재 `PostgreSQLManager`와 호환되는 `SecReportsManager` API를 library에 먼저 추가
+- Phase 2(`db_factory` 전환)는 read-only smoke test와 주요 메서드 parity 확인 후 별도 커밋으로 진행한다.
+
 ## 배경
 
 | 항목 | 현재 위치 | 목적지 |
@@ -19,16 +28,30 @@
 **리스크**: 없음 (설치만 하고 코드 변경 없음)
 
 - `ssh-reports-scraper`의 의존성에 `ssh-library`를 path dependency로 추가
-- `uv sync` 또는 `uv pip install -e ~/lib/ssh-library`로 설치
+- `uv sync` 또는 `uv pip install -e ~/workspace/lib/ssh-library`로 설치
+
+**상태:** 보류. `pyproject.toml`에 로컬 path dependency를 바로 추가하면 GitHub Actions runner에서 `~/workspace/lib/ssh-library` 경로가 없어질 수 있다. Phase 2 전환 전에 git dependency 또는 배포 서버 path 보장 방식 중 하나를 선택한다.
 
 ## Phase 1 — 공유 라이브러리에 메서드 이전
 
-**변경 파일**: `~/lib/ssh-library/src/ssh_library/reports.py` 1개  
+**변경 파일**: `~/workspace/lib/ssh-library/src/ssh_library/reports.py` 1개
 **리스크**: 없음 (현재 프로젝트 코드 변경 없음)
 
 - 현재 `PostgreSQLManager`에만 있는 메서드들을 `SecReportsManager` 클래스로 복사
 - API(`_fetchall`, `_execute`, 시그니처) 완전 동일 유지
 - 테이블명 참조: `self.main_table_name` → `self.table_name`으로 통일
+
+**상태:** 완료. `~/workspace/lib/ssh-library/src/ssh_library/reports.py`에 scraper 호환 API를 보강했다. scraper의 `models/db_factory.py`는 아직 전환하지 않는다.
+
+### 2026-06-03 Phase 1 보강 내용
+
+- `SecReportsManager._last_inserted_keys` 추가
+- `insert_json_data_list()`가 빈 목록에서 `(0, 0)`을 반환하도록 보정
+- `insert_json_data_list()`가 `RETURNING key, inserted`를 사용해 신규 key를 추적하도록 보정
+- `update_report_tags()` 추가
+- `fetch_pending_tag_reports()` 추가
+- keyword table 이름을 현재 scraper 구현과 맞춰 `tbl_sec_reports_alert_keywords`로 정정
+- library 단위 테스트 추가 및 `uv run pytest -q tests` 통과
 
 ### 이전 대상 메서드 목록
 
