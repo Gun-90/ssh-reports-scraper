@@ -101,6 +101,14 @@ def run_fnguide_matcher():
         python_path = os.path.join(backend_dir, ".venv", "bin", "python")
         script_path = os.path.join(backend_dir, "scripts", "match_fnguide_reports.py")
         
+        # 1. 컨테이너 및 도커 환경에서 백엔드 볼륨 부재 시 오작동/Errno 2 방지를 위한 안전 체크
+        if not os.path.exists(python_path) or not os.path.exists(script_path):
+            logger.warning(
+                "FnGuide Matcher skipped: backend python virtualenv or script path not found in this container environment."
+            )
+            logger.info("--- [Job End] FnGuide Report Matcher ---")
+            return
+            
         logger.info(f"Triggering matcher CLI: {script_path}")
         result = subprocess.run(
             [python_path, script_path, "--limit", "300"],
