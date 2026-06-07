@@ -91,6 +91,38 @@ def run_ai_summary(limit):
         logger.error(f"Execution Error: {e}")
     logger.info("--- AI Summary Batch End ---")
 
+
+def run_fnguide_matcher():
+    """FnGuide 요약 리포트 유사도 매칭 배치 자동 실행"""
+    logger.info("--- [Job Start] FnGuide Report Matcher ---")
+    try:
+        # 백엔드 레포지토리의 가상환경 내 python을 실행하여 매칭 배치 호출
+        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend", "ssh-reports-hub-fastAPI"))
+        python_path = os.path.join(backend_dir, ".venv", "bin", "python")
+        script_path = os.path.join(backend_dir, "scripts", "match_fnguide_reports.py")
+        
+        logger.info(f"Triggering matcher CLI: {script_path}")
+        result = subprocess.run(
+            [python_path, script_path, "--limit", "300"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode != 0:
+            logger.error(f"FnGuide Matcher exited with error code {result.returncode}")
+            if result.stderr:
+                logger.error(f"FnGuide Matcher Error Output:\n{result.stderr}")
+        else:
+            logger.success("FnGuide Matcher job completed successfully.")
+            if result.stdout:
+                lines = result.stdout.strip().split('\n')
+                for line in lines[-5:]:
+                    logger.info(f"[Matcher] {line}")
+    except Exception as e:
+        logger.error(f"FnGuide Matcher Execution Error: {e}")
+    logger.info("--- [Job End] FnGuide Report Matcher ---")
+
+
 scheduler = BlockingScheduler()
 
 # [스케줄 1] 메인 스크래퍼: */30 0,5-12,14-23 * * * (기존 crontab 복제)
@@ -132,6 +164,13 @@ scheduler.add_job(
     id="summary_batch_30"
 )
 """
+
+# [스케줄 4] FnGuide 매칭 배치: 30분마다 가동 (메인 스크래퍼 구동 10분 뒤)
+scheduler.add_job(
+    run_fnguide_matcher,
+    CronTrigger(minute='10,40', hour='0,5-12,14-23', jitter=120),
+    id="fnguide_matcher_job"
+)
 
 if __name__ == "__main__":
     logger.info("🚀 Master Scheduler starting up...")
