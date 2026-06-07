@@ -96,36 +96,39 @@ def run_fnguide_matcher():
     """FnGuide 요약 리포트 유사도 매칭 배치 자동 실행"""
     logger.info("--- [Job Start] FnGuide Report Matcher ---")
     try:
-        # 백엔드 레포지토리의 가상환경 내 python을 실행하여 매칭 배치 호출
-        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend", "ssh-reports-hub-fastAPI"))
-        python_path = os.path.join(backend_dir, ".venv", "bin", "python")
-        script_path = os.path.join(backend_dir, "scripts", "match_fnguide_reports.py")
+        import requests
         
-        # 1. 컨테이너 및 도커 환경에서 백엔드 볼륨 부재 시 오작동/Errno 2 방지를 위한 안전 체크
-        if not os.path.exists(python_path) or not os.path.exists(script_path):
-            logger.warning(
-                "FnGuide Matcher skipped: backend python virtualenv or script path not found in this container environment."
-            )
+        # 1) 환경 변수에서 BACKEND_API_URL 및 JWT_SECRET_KEY 추출
+        # 도커 환경 및 로컬 개발 환경 모두에서 안전하게 작동하도록 폴백 구성
+        backend_api_url = os.getenv("BACKEND_API_URL", "http://localhost:8002").rstrip("/")
+        jwt_secret_key = os.getenv("JWT_SECRET_KEY")
+        
+        if not jwt_secret_key:
+            logger.error("FnGuide Matcher skipped: JWT_SECRET_KEY environment variable is not set.")
             logger.info("--- [Job End] FnGuide Report Matcher ---")
             return
             
-        logger.info(f"Triggering matcher CLI: {script_path}")
-        result = subprocess.run(
-            [python_path, script_path, "--limit", "300"],
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        if result.returncode != 0:
-            logger.error(f"FnGuide Matcher exited with error code {result.returncode}")
-            if result.stderr:
-                logger.error(f"FnGuide Matcher Error Output:\n{result.stderr}")
+        url = f"{backend_api_url}/admin/fnguide/match-internal?limit=300"
+        headers = {
+            "X-Internal-Token": jwt_secret_key,
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"Triggering matcher API: {url}")
+        response = requests.post(url, headers=headers, timeout=120)  # 매칭 연산 대기를 위한 충분한 타임아웃
+        
+        if response.status_code != 200:
+            logger.error(f"FnGuide Matcher API exited with status code {response.status_code}")
+            logger.error(f"Response: {response.text}")
         else:
-            logger.success("FnGuide Matcher job completed successfully.")
-            if result.stdout:
-                lines = result.stdout.strip().split('\n')
-                for line in lines[-5:]:
-                    logger.info(f"[Matcher] {line}")
+            result = response.json()
+            if result.get("status") == "success" or "matched_count" in result:
+                logger.success(
+                    f"FnGuide Matcher job completed successfully. "
+                    f"Matched {result.get('matched_count', 0)}/{result.get('total_processed', 0)} reports."
+                )
+            else:
+                logger.error(f"FnGuide Matcher API logic error: {result.get('message')}")
     except Exception as e:
         logger.error(f"FnGuide Matcher Execution Error: {e}")
     logger.info("--- [Job End] FnGuide Report Matcher ---")
