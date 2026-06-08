@@ -45,14 +45,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Prepare optional vendor context
-        run: mkdir -p vendor/ssh-library
+        run: mkdir -p vendor/ssh_library
 
       - name: Checkout private ssh-library
         if: ${{ env.SSH_LIBRARY_ENABLED == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: liante0904/ssh-library
-          path: vendor/ssh-library
+          path: vendor/ssh_library
           ssh-key: ${{ secrets.SSH_LIBRARY_DEPLOY_KEY }}
 
       - name: Set up Python
@@ -97,7 +97,7 @@ jobs:
         with:
           context: .
           build-contexts: |
-            ssh_library=./vendor/ssh-library
+            ssh_library=./vendor/ssh_library
           build-args: |
             INSTALL_SSH_LIBRARY=${{ env.SSH_LIBRARY_ENABLED == 'true' && '1' || '0' }}
           platforms: linux/amd64, linux/arm64

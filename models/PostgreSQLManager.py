@@ -280,7 +280,7 @@ class PostgreSQLManager:
             cond = """(main_ch_send_yn != 'Y' OR main_ch_send_yn IS NULL)
                       AND (sec_firm_order != 19 OR (sec_firm_order = 19 AND telegram_url <> ''))"""
         else:
-            cond = 'main_ch_send_yn = \'Y\' AND download_status_yn != \'Y\''
+            cond = "main_ch_send_yn = 'Y' AND pdf_sync_status != 2"
 
         # DISTINCT ON replaces SQLite GROUP BY trick
         sql = f"""
@@ -322,7 +322,7 @@ class PostgreSQLManager:
         else:
             for row in fetched_rows:
                 self._execute(
-                    f"UPDATE {self.main_table_name} SET download_status_yn='Y' WHERE report_id=%s",
+                    f"UPDATE {self.main_table_name} SET pdf_sync_status=2 WHERE report_id=%s",
                     (row["report_id"],),
                 )
         return {"status": "success"}

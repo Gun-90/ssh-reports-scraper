@@ -123,7 +123,7 @@ def migrate_main(batch_size=5000, truncate=False):
                 r["report_id"], r["sec_firm_order"], r["article_board_order"],
                 _clean(r["firm_nm"]), _clean(r["article_title"]),
                 _clean(r["article_url"]),
-                _clean(r["main_ch_send_yn"]), _clean(r["download_status_yn"] or ''),
+                _clean(r["main_ch_send_yn"]),
                 _clean(r["download_url"]), _clean(r["save_time"]),
                 _clean(r["reg_dt"] or ''), _clean(r["writer"] or ''),
                 _clean(r["key"]), _clean(r["telegram_url"] or ''),
@@ -139,7 +139,7 @@ def migrate_main(batch_size=5000, truncate=False):
             cur,
             '''INSERT INTO tbl_sec_reports (
                 report_id, sec_firm_order, article_board_order, firm_nm,
-                article_title, article_url, main_ch_send_yn, download_status_yn,
+                article_title, article_url, main_ch_send_yn,
                 download_url, save_time, reg_dt, writer, key, telegram_url, mkt_tp,
                 gemini_summary, summary_time, summary_model, archive_status,
                 pdf_sync_status, pdf_url
@@ -149,7 +149,6 @@ def migrate_main(batch_size=5000, truncate=False):
                 writer             = EXCLUDED.writer,
                 mkt_tp             = EXCLUDED.mkt_tp,
                 main_ch_send_yn    = EXCLUDED.main_ch_send_yn,
-                download_status_yn = EXCLUDED.download_status_yn,
                 gemini_summary     = COALESCE(NULLIF(EXCLUDED.gemini_summary,''), tbl_sec_reports.gemini_summary),
                 download_url       = COALESCE(NULLIF(EXCLUDED.download_url,''),  tbl_sec_reports.download_url),
                 telegram_url       = COALESCE(NULLIF(EXCLUDED.telegram_url,''),  tbl_sec_reports.telegram_url),

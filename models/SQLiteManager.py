@@ -337,7 +337,7 @@ class SQLiteManager:
             query_condition = "(main_ch_send_yn != 'Y' OR main_ch_send_yn IS NULL)"
             query_condition += "AND (sec_firm_order != 19 OR (sec_firm_order = 19 AND telegram_url <> ''))"
         elif type == 'download':
-            query_condition = "main_ch_send_yn = 'Y' AND download_status_yn != 'Y'"
+            query_condition = "main_ch_send_yn = 'Y' AND pdf_sync_status != 2"
 
         # 3일 이내 조건 추가
         three_days_ago = (datetime.now() - timedelta(days=3)).strftime('%Y%m%d')
@@ -384,7 +384,7 @@ class SQLiteManager:
                 await self.execute_query(update_query, param)
 
         elif type == 'download':
-            update_query = f"UPDATE {self.main_table_name} SET download_status_yn = 'Y' WHERE report_id = ?"
+            update_query = f"UPDATE {self.main_table_name} SET pdf_sync_status = 2 WHERE report_id = ?"
             for row in fetched_rows:
                 await self.execute_query(update_query, (row['report_id'],))
         
