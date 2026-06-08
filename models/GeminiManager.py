@@ -46,7 +46,8 @@ class GeminiManager:
 1. 핵심 요약 (3줄 이내)
 2. 주요 포인트 (불렛 포인트)
 3. 투자의견 및 목표주가 (있는 경우)
-한국어로 답변해 주세요."""
+
+인사말이나 소개(예: '안녕하세요', 'Antigravity AI입니다', '요약해 드립니다') 없이 정해진 요약 포맷으로 바로 시작하여 한국어로 답변해 주세요."""
 
         try:
             # 파일 업로드
@@ -57,7 +58,18 @@ class GeminiManager:
 
             # 요약 생성
             logger.debug(f"Generating summary using {self.model_name}...")
-            response = self.model.generate_content([uploaded_file, prompt])
+            
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
+            response = self.model.generate_content(
+                [uploaded_file, prompt],
+                safety_settings=safety_settings
+            )
             
             # 업로드된 파일 삭제 (공간 절약)
             genai.delete_file(uploaded_file.name)

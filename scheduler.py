@@ -6,11 +6,14 @@ from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
+from dotenv import load_dotenv
 
 # 공통 로그 설정 적용
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from utils.logger_util import setup_logger
 setup_logger("scheduler")
+
+load_dotenv()
 
 def run_scraper():
     """메인 스크래퍼 실행 (scraper.py)"""
@@ -77,20 +80,6 @@ def run_scraper():
 #         logger.error(f"[Enricher] backfill failed: {e}")
 #     logger.info("--- [Job End] Enricher Backfill ---")
 
-def run_ai_summary(limit):
-    """AI 요약 배치 실행 (현재 미사용 - 주석 처리용)"""
-    logger.info(f"--- AI Summary Batch Start (Limit: {limit}) ---")
-    try:
-        result = subprocess.run(
-            ["uv", "run", "run/gemini_summary_batch.py", str(limit)],
-            check=False
-        )
-        if result.returncode != 0:
-            logger.error(f"Batch process exited with error code {result.returncode}")
-    except Exception as e:
-        logger.error(f"Execution Error: {e}")
-    logger.info("--- AI Summary Batch End ---")
-
 
 def run_fnguide_matcher():
     """FnGuide 요약 리포트 유사도 매칭 배치 자동 실행"""
@@ -104,7 +93,7 @@ def run_fnguide_matcher():
         jwt_secret_key = os.getenv("JWT_SECRET_KEY")
         
         if not jwt_secret_key:
-            logger.error("FnGuide Matcher skipped: JWT_SECRET_KEY environment variable is not set.")
+            logger.warning("FnGuide Matcher skipped: JWT_SECRET_KEY environment variable is not set.")
             logger.info("--- [Job End] FnGuide Report Matcher ---")
             return
             
@@ -158,23 +147,6 @@ scheduler.add_job(
 #     kwargs={"batch_size": 30000, "batches": 1},
 #     id="enricher_backfill_job"
 # )
-
-# [스케줄 2] AI 요약: 일단 주석 처리 (필요 시 해제)
-"""
-scheduler.add_job(
-    run_ai_summary,
-    CronTrigger(minute='15,45', hour='0,5-12,13,14-23'),
-    args=[20],
-    id="summary_batch_20"
-)
-
-scheduler.add_job(
-    run_ai_summary,
-    CronTrigger(minute='0,15,30,45', hour='1-4'),
-    args=[30],
-    id="summary_batch_30"
-)
-"""
 
 # [스케줄 4] FnGuide 매칭 배치: 30분마다 가동 (메인 스크래퍼 구동 10분 뒤)
 scheduler.add_job(
