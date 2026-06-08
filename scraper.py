@@ -52,7 +52,7 @@ token = os.getenv('TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET')
 chat_id = os.getenv('TELEGRAM_CHANNEL_ID_REPORT_ALARM')
 SCRAPER_STALE_DAYS = int(os.getenv("SCRAPER_STALE_DAYS", "5"))
 SCRAPER_SYNC_TIMEOUT_SECONDS = int(os.getenv("SCRAPER_SYNC_TIMEOUT_SECONDS", "180"))
-SCRAPER_ASYNC_TIMEOUT_SECONDS = int(os.getenv("SCRAPER_ASYNC_TIMEOUT_SECONDS", "180"))
+SCRAPER_ASYNC_TIMEOUT_SECONDS = int(os.getenv("SCRAPER_ASYNC_TIMEOUT_SECONDS", "300"))
 LS_LIST_TIMEOUT_SECONDS = int(os.getenv("LS_LIST_TIMEOUT_SECONDS", "300"))
 LS_DETAIL_TIMEOUT_SECONDS = int(os.getenv("LS_DETAIL_TIMEOUT_SECONDS", "300"))
 SCRAPER_HEALTH_ERRORS = []
@@ -265,19 +265,25 @@ async def call_async_scraper(func):
         return name, None, f"Async Scraper Error ({name}): {e}"
 
 
-async def run_async_scrapers(async_funcs, total_data):
-    logger.info(f"Launching {len(async_funcs)} async scrapers...")
+async def run_async_scrapers(async_funcs, total_data, max_concurrency=3):
+    logger.info(f"Launching {len(async_funcs)} async scrapers (max concurrency: {max_concurrency})...")
+    sem = asyncio.Semaphore(max_concurrency)
+    
+    async def sem_call(func):
+        async with sem:
+            return await call_async_scraper(func)
+            
     tasks = []
     
     for f in async_funcs:
         if not callable(f):
             continue
-        tasks.append(call_async_scraper(f))
+        tasks.append(sem_call(f))
 
     if not tasks:
         return
 
-    logger.debug(f"Gathering {len(tasks)} scraper tasks")
+    logger.debug(f"Gathering {len(tasks)} scraper tasks with Semaphore")
     results = await asyncio.gather(*tasks)
     for name, res, error in results:
         if error:
