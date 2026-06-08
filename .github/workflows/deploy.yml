@@ -129,8 +129,8 @@ jobs:
             set -eu
             DEPLOY_KEYWORD_ALERT="${DEPLOY_KEYWORD_ALERT:-false}"
 
-            DEPLOY_DIR="${PROJECT_DIR:-/home/ubuntu/workspace/internal.private-hub/apps/scrapers/ssh-reports-scraper}"
-            FALLBACK_DIR="/home/ubuntu/workspace/internal.private-hub/apps/scrapers/ssh-reports-scraper"
+            DEPLOY_DIR="${PROJECT_DIR:-/home/ubuntu/workspace/external.reports-hub/apps/scrapers/ssh-reports-scraper}"
+            FALLBACK_DIR="/home/ubuntu/workspace/external.reports-hub/apps/scrapers/ssh-reports-scraper"
 
             if [ ! -d "$DEPLOY_DIR/.git" ] || [ ! -f "$DEPLOY_DIR/docker-compose.yml" ]; then
               if [ "$DEPLOY_DIR" != "$FALLBACK_DIR" ] && [ -d "$FALLBACK_DIR/.git" ] && [ -f "$FALLBACK_DIR/docker-compose.yml" ]; then
