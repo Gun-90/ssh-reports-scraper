@@ -96,7 +96,8 @@ async def Sangsanginib_checkNewArticle():
         "_ga_BTXL5GSB67": "GS1.1.1728208331.1.1.1728208338.53.0.0"
     }
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         tasks = [
             process_board_order(session, sec_firm_order, idx, TARGET_URL, cms_cd, headers, cookies)
             for idx, cms_cd in enumerate(cmsCd_list)

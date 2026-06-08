@@ -48,7 +48,10 @@ async def fetch_all_pages_meritz(session, base_url, sec_firm_order, article_boar
         # 헤더 매핑 생성: 헤더 이름 -> 열 번호
         header_map = {th.get_text().strip(): idx for idx, th in enumerate(soupListHead)}
         
-        for list_item in soupList:
+        # Semaphore 설정으로 과도한 동시 상세페이지 요청 방지
+        sem = asyncio.Semaphore(3)
+
+        async def process_list_item(list_item):
             try:
                 link_tag = list_item.select_one(f'td:nth-child({header_map["제목"] + 1}) a')
 
@@ -69,7 +72,9 @@ async def fetch_all_pages_meritz(session, base_url, sec_firm_order, article_boar
 
                 # download_url, telegram_url 생성
                 try:
-                    article_html = await fetch(session, LIST_ARTICLE_URL)
+                    # 세마포어 하에서 상세 페이지 비동기 수집
+                    async with sem:
+                        article_html = await fetch(session, LIST_ARTICLE_URL)
                     article_soup = BeautifulSoup(article_html, "html.parser")
 
                     download_tag = article_soup.select_one('a[title]')
@@ -104,7 +109,10 @@ async def fetch_all_pages_meritz(session, base_url, sec_firm_order, article_boar
                 json_data_list.append(article_data)
             except Exception as e:
                 logger.error(f"Error parsing article row: {e}")
-                continue
+
+        # 모든 리스트 아이템 상세 정보 파싱을 병렬 비동기 실행
+        item_tasks = [process_list_item(list_item) for list_item in soupList]
+        await asyncio.gather(*item_tasks)
 
         page += 1
 
@@ -120,7 +128,9 @@ async def MERITZ_checkNewArticle(full_fetch=False):
     # 200건씩 한 번만 호출하도록 max_pages를 1로 제한 (full_fetch 시에도 대량 수집 가능)
     max_pages = 1
     all_results = []
-    async with aiohttp.ClientSession() as session:
+    # 명시적 타임아웃 세팅 (Hanging 방지)
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for article_board_order, base_url in enumerate(TARGET_URL_TUPLE):
             logger.info(f"Processing MERITZ board {article_board_order + 1}/{len(TARGET_URL_TUPLE)}")
             results = await fetch_all_pages_meritz(session, base_url, sec_firm_order, article_board_order, max_pages)

@@ -237,56 +237,65 @@ async def fetch_detailed_url(articles):
             collapsed_duplicates,
         )
 
-        for item in representative_items:
+        # Semaphore 설정으로 과도한 동시 요청을 방지하며 속도 최적화
+        sem = asyncio.Semaphore(3)
+
+        async def process_item(item):
             key_url = item["representative_key"]
             key_articles = item["articles"]
             try:
-                encoded_url = encoded_url_cache.get(key_url)
-                if not encoded_url:
-                    async with session.post(key_url, headers=HEADERS_TEMPLATE) as response:
-                        if response.status != 200:
-                            logger.warning(f"Failed to fetch details from {key_url}. Status code: {response.status}")
-                            continue
-                        try:
-                            detail_data = await response.json()
-                        except json.JSONDecodeError:
-                            logger.error(f"Failed to parse JSON for {key_url}")
-                            continue
-                        encoded_url = detail_data.get("data", {}).get("url", "")
-                        encoded_url_cache[key_url] = encoded_url
+                # 동시 요청 제어를 Semaphore 블록 내에서 실행
+                async with sem:
+                    encoded_url = encoded_url_cache.get(key_url)
+                    if not encoded_url:
+                        async with session.post(key_url, headers=HEADERS_TEMPLATE) as response:
+                            if response.status != 200:
+                                logger.warning(f"Failed to fetch details from {key_url}. Status code: {response.status}")
+                                return
+                            try:
+                                detail_data = await response.json()
+                            except json.JSONDecodeError:
+                                logger.error(f"Failed to parse JSON for {key_url}")
+                                return
+                            encoded_url = detail_data.get("data", {}).get("url", "")
+                            encoded_url_cache[key_url] = encoded_url
 
-                if not encoded_url:
-                    logger.warning(f"DBfi: Empty document id for {key_url}")
-                    continue
+                    if not encoded_url:
+                        logger.warning(f"DBfi: Empty document id for {key_url}")
+                        return
 
-                extracted = extracted_cache.get(encoded_url)
-                if extracted is None:
-                    extracted = await extract_dbfi_pdf_url(session, encoded_url)
-                    extracted_cache[encoded_url] = extracted
+                    extracted = extracted_cache.get(encoded_url)
+                    if extracted is None:
+                        extracted = await extract_dbfi_pdf_url(session, encoded_url)
+                        extracted_cache[encoded_url] = extracted
 
-                if not extracted:
-                    logger.warning(f"DBfi: PDF URL extraction failed for {key_url}")
-                    continue
+                    if not extracted:
+                        logger.warning(f"DBfi: PDF URL extraction failed for {key_url}")
+                        return
 
-                gate_url = extracted["gate_url"]
-                pdf_url = extracted["pdf_url"]
-                for article in key_articles:
-                    article["telegram_url"] = gate_url
-                    article["pdf_url"] = pdf_url
-                    article["FILE_NAME"] = extracted["file_name"]
-                    article["DOC_ID"] = extracted["doc_id"]
-                    article["GATE_URL"] = gate_url
-                    article["VIEWER_URL"] = extracted["viewer_url"]
-                logger.info(
-                    "DBfi: key={} affected={} file={} docId={} gate={}",
-                    key_url,
-                    len(key_articles),
-                    extracted["file_name"],
-                    extracted["doc_id"],
-                    gate_url,
-                )
+                    gate_url = extracted["gate_url"]
+                    pdf_url = extracted["pdf_url"]
+                    for article in key_articles:
+                        article["telegram_url"] = gate_url
+                        article["pdf_url"] = pdf_url
+                        article["FILE_NAME"] = extracted["file_name"]
+                        article["DOC_ID"] = extracted["doc_id"]
+                        article["GATE_URL"] = gate_url
+                        article["VIEWER_URL"] = extracted["viewer_url"]
+                    logger.info(
+                        "DBfi: key={} affected={} file={} docId={} gate={}",
+                        key_url,
+                        len(key_articles),
+                        extracted["file_name"],
+                        extracted["doc_id"],
+                        gate_url,
+                    )
             except Exception as e:
                 logger.error(f"Network or timeout error while fetching detailed URL ({key_url}): {e}")
+
+        # 모든 대표 아이템 상세 조회를 병렬로 실행
+        tasks = [process_item(item) for item in representative_items]
+        await asyncio.gather(*tasks)
 
     return articles
 

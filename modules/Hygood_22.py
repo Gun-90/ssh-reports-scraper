@@ -33,7 +33,8 @@ async def Hanyang_checkNewArticle():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     }
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         tasks = [fetch_article(session, url, headers) for url in TARGET_URL_TUPLE]
         responses = await asyncio.gather(*tasks)
     

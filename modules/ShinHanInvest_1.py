@@ -377,7 +377,8 @@ async def ShinHanInvest_checkNewArticle():
 
     logger.debug(f"ShinHanInvest Scraper Start: {url}")
     firm_info = FirmInfo(sec_firm_order=sec_firm_order, article_board_order=0)
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for bbs_name in STR_BOARD_GROUPS:
             json_data_list.extend(
                 _build_article(item, firm_info)

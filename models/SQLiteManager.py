@@ -70,6 +70,24 @@ class SQLiteManager:
         rows = self.cursor.fetchall()
         return [dict(row) for row in rows]
 
+    def fetch_existing_keys(self, sec_firm_order: int, days_limit: int = 7) -> set:
+        """특정 증권사의 key 목록을 조회하여 반환 (중복 방지용)"""
+        self.open_connection()
+        try:
+            sql = f"SELECT key FROM {self.main_table_name} WHERE sec_firm_order = ?"
+            params = [sec_firm_order]
+            
+            if days_limit is not None:
+                cutoff = (datetime.now() - timedelta(days=days_limit)).strftime("%Y-%m-%d %H:%M:%S")
+                sql += " AND save_time >= ?"
+                params.append(cutoff)
+                
+            self.cursor.execute(sql, tuple(params))
+            rows = self.cursor.fetchall()
+            return {r["key"] for r in rows if r.get("key")}
+        finally:
+            self.close_connection()
+
     def insert_json_data_list(self, json_data_list, table_name=None):
         """JSON 형태의 리스트 데이터를 데이터베이스 테이블에 삽입하며, 삽입 성공 및 업데이트된 건수를 출력합니다."""
         if table_name is None:

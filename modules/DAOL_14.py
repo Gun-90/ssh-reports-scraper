@@ -25,7 +25,8 @@ async def DAOL_checkNewArticle():
     TARGET_URL_TUPLE = config.get_urls("DAOL_14")
 
     # 세션 생성
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         tasks = []
         
         for article_board_order, TARGET_URL in enumerate(TARGET_URL_TUPLE):

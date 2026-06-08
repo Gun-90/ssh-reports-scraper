@@ -271,14 +271,15 @@ class AsyncWebScraper:
     async def Get(self, session=None, params=None, retries=5, silent_retries=5):
         """비동기 GET 요청을 통해 데이터를 가져오는 메서드"""
         close_session = False
+        timeout_config = aiohttp.ClientTimeout(total=15)
         if session is None:
-            session = aiohttp.ClientSession()
+            session = aiohttp.ClientSession(timeout=timeout_config)
             close_session = True
 
         try:
             for attempt in range(1, retries + 1):
                 try:
-                    async with session.get(self.target_url, headers=self.headers, params=params, timeout=20) as response:
+                    async with session.get(self.target_url, headers=self.headers, params=params, timeout=timeout_config) as response:
                         response.raise_for_status()
                         html = await response.text()
                         return BeautifulSoup(html, "html.parser")
@@ -298,12 +299,13 @@ class AsyncWebScraper:
     async def Post(self, session=None, data=None):
         """비동기 POST 요청을 통해 데이터를 가져오는 메서드"""
         close_session = False
+        timeout_config = aiohttp.ClientTimeout(total=15)
         if session is None:
-            session = aiohttp.ClientSession()
+            session = aiohttp.ClientSession(timeout=timeout_config)
             close_session = True
 
         try:
-            async with session.post(self.target_url, headers=self.headers, data=data) as response:
+            async with session.post(self.target_url, headers=self.headers, data=data, timeout=timeout_config) as response:
                 response.raise_for_status()
                 html = await response.text()
                 return BeautifulSoup(html, "html.parser")
@@ -314,14 +316,15 @@ class AsyncWebScraper:
     async def GetJson(self, session=None, params=None, retries=5, silent_retries=5):
         """비동기 GET 요청을 통해 JSON 데이터를 가져오는 메서드"""
         close_session = False
+        timeout_config = aiohttp.ClientTimeout(total=15)
         if session is None:
-            session = aiohttp.ClientSession()
+            session = aiohttp.ClientSession(timeout=timeout_config)
             close_session = True
 
         try:
             for attempt in range(1, retries + 1):
                 try:
-                    async with session.get(self.target_url, headers=self.headers, params=params, timeout=20) as response:
+                    async with session.get(self.target_url, headers=self.headers, params=params, timeout=timeout_config) as response:
                         response.raise_for_status()
                         logger.debug(f"AsyncWebScraper GetJson successful: {self.target_url} (Attempt {attempt})")
                         return await response.json()
@@ -343,9 +346,10 @@ class AsyncWebScraper:
         비동기 POST 요청을 통해 JSON 데이터를 가져오는 메서드.
         """
         close_session = False
+        timeout_config = aiohttp.ClientTimeout(total=15)
         if session is None:
             conn = aiohttp.TCPConnector(ssl=False, force_close=True)
-            session = aiohttp.ClientSession(connector=conn)
+            session = aiohttp.ClientSession(connector=conn, timeout=timeout_config)
             close_session = True
 
         use_headers = headers
@@ -356,7 +360,7 @@ class AsyncWebScraper:
             }
 
         try:
-            async with session.post(self.target_url, headers=use_headers, data=params, json=json_data) as response:
+            async with session.post(self.target_url, headers=use_headers, data=params, json=json_data, timeout=timeout_config) as response:
                 response.raise_for_status()
                 logger.debug(f"AsyncWebScraper PostJson successful: {self.target_url}")
                 return await response.json(content_type=None)

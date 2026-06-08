@@ -121,7 +121,8 @@ async def HANA_checkNewArticle(full_fetch=False):
     max_pages = None if full_fetch else 3
     all_results = []
     
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for article_board_order, base_url in enumerate(TARGET_URL_TUPLE):
             firm_info = FirmInfo(sec_firm_order, article_board_order)
             logger.debug(f"HANA Scraper Start: {firm_info.get_firm_name()} Board {article_board_order}")

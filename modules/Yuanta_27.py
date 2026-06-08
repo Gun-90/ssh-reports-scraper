@@ -107,7 +107,8 @@ async def Yuanta_checkNewArticle(is_imported_flag=False):
     sec_firm_order = 27
     semaphore = asyncio.Semaphore(5)
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         if is_imported_flag:
             logger.info("--- Starting full historical scrape for Yuanta (Async) ---")
             end_date = date.today()

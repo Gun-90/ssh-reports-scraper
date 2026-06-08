@@ -45,7 +45,7 @@ async def Daeshin_checkNewArticle():
             
             return viewstate, viewstate_gen, event_validation
 
-    async def fetch_page_data(session, page, viewstate, viewstate_gen, event_validation):
+    async def fetch_page_data(session, page, viewstate, viewstate_gen, event_validation, sem):
         """각 페이지의 데이터와 hidden 필드를 갱신하여 크롤링하는 함수"""
         data = {
             "ctl00$sm1": "ctl00$ContentPlaceHolder1$UpdatePanel1|ctl00$ContentPlaceHolder1$bt_refresh",
@@ -69,7 +69,8 @@ async def Daeshin_checkNewArticle():
             
             logger.info(f"Daeshin Scraper: Found {len(items)} items on page {page}")
             
-            for item in items:
+            # 각 아이템(리포트)별 상세 조회를 병렬 비동기로 처리하기 위한 내부 함수
+            async def process_item(item):
                 title = item.find("strong", class_="title1").text.strip()
                 if title.startswith("[대신증권 "):
                     title = title.replace("[대신증권 ", "[")
@@ -82,24 +83,31 @@ async def Daeshin_checkNewArticle():
                     article_url = urljoin(url, href)
                 else:
                     logger.warning("No href found for a Daeshin item")
-                    continue
+                    return
                 
-                attach_url = await fetch_attach_url(session, article_url)
+                # 대상 서버 과부하 방지 및 IP 차단 예방을 위해 세마포어로 동시 요청수 제어
+                async with sem:
+                    attach_url = await fetch_attach_url(session, article_url)
 
-                json_data_list.append({
-                    "sec_firm_order": sec_firm_order,
-                    "article_board_order": article_board_order,
-                    "firm_nm": firm_info.get_firm_name(),
-                    "reg_dt": re.sub(r"[-./]", "", reg_dt),
-                    "article_url": article_url,
-                    "download_url": attach_url,
-                    "telegram_url": attach_url,
-                    "pdf_url": attach_url,
-                    "key": attach_url,
-                    "article_title": title,
-                    "writer": author,
-                    "save_time": datetime.now().isoformat()
-                })
+                if attach_url:
+                    json_data_list.append({
+                        "sec_firm_order": sec_firm_order,
+                        "article_board_order": article_board_order,
+                        "firm_nm": firm_info.get_firm_name(),
+                        "reg_dt": re.sub(r"[-./]", "", reg_dt),
+                        "article_url": article_url,
+                        "download_url": attach_url,
+                        "telegram_url": attach_url,
+                        "pdf_url": attach_url,
+                        "key": attach_url,
+                        "article_title": title,
+                        "writer": author,
+                        "save_time": datetime.now().isoformat()
+                    })
+
+            # 전체 아이템에 대한 병렬 태스크 실행
+            item_tasks = [process_item(item) for item in items]
+            await asyncio.gather(*item_tasks)
 
     async def fetch_attach_url(session, article_url):
         """article_url 페이지에서 pdf_url 추출"""
@@ -115,12 +123,16 @@ async def Daeshin_checkNewArticle():
             logger.error(f"Error fetching attach URL from {article_url}: {e}")
         return None
 
-    async with aiohttp.ClientSession() as session:
+    # 명시적 타임아웃 세팅 (Hanging으로 인한 무한 대기 현상 전면 방지)
+    timeout = aiohttp.ClientTimeout(total=15)
+    sem = asyncio.Semaphore(3)  # 최대 동시 3개 상세조회 허용
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
             viewstate, viewstate_gen, event_validation = await fetch_hidden_values(session, url)
             tasks = []
             for page in range(1, 5):
-                tasks.append(fetch_page_data(session, page, viewstate, viewstate_gen, event_validation))
+                tasks.append(fetch_page_data(session, page, viewstate, viewstate_gen, event_validation, sem))
             
             await asyncio.gather(*tasks)
         except Exception as e:

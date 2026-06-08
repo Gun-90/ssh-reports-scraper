@@ -66,7 +66,8 @@ async def NHQV_checkNewArticle(target_date=None):
         "rshPprNo": ""
     }
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         while True:
             try:
                 async with session.post(TARGET_URL, headers=headers, data=payload) as response:

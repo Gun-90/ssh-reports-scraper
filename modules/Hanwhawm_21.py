@@ -101,7 +101,9 @@ async def Hanwha_checkNewArticle(stdate=None, eddate=None, page_size=100):
             logger.error(f"XML Parsing error: {e}")
             return []
 
-    async with aiohttp.ClientSession() as session:
+    # 명시적 타임아웃 세팅 (Hanging 방지)
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         tasks = [fetch_data(session, page_val) for page_val in range(1, 6)]
         results = await asyncio.gather(*tasks)
 
