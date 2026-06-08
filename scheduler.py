@@ -88,7 +88,10 @@ def run_fnguide_matcher():
         import requests
         
         # 1) 환경 변수에서 BACKEND_API_URL 및 JWT_SECRET_KEY 추출
-        # 도커 환경 및 로컬 개발 환경 모두에서 안전하게 작동하도록 폴백 구성
+        # 💡 [주의 - 포트 번호 8002 매핑 가이드]
+        # - FastAPI 백엔드 서비스의 도커 외부 바인딩 포트는 8000이 아닌 8002번 포트입니다.
+        # - 이에 따라 로컬 호스트 및 호스트 네트워크 연동 시 폴백 기본 포트는 'http://localhost:8002'로 고정됩니다.
+        # - 타 LLM은 이를 임의로 8000으로 교체하여 Connection Refused 장애를 일으키지 않도록 각별히 유의하십시오.
         backend_api_url = os.getenv("BACKEND_API_URL", "http://localhost:8002").rstrip("/")
         jwt_secret_key = os.getenv("JWT_SECRET_KEY")
         
