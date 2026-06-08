@@ -15,17 +15,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.FirmInfo import FirmInfo
 from models.ConfigManager import config
 
-# 기본 URL과 공통 헤더 설정
 BASE_URL = config.get_urls("iMfnsec_18")[0]
 HEADERS_TEMPLATE = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
     "Content-Type": "application/x-www-form-urlencoded;charset=utf-8"
 }
 
-# 전역 변수로 시큐어 키를 한 번만 생성하고 저장
 SECURE_KEY = None
 
-# 시큐어 키 생성 함수 (비동기, 한 번만 생성하여 재사용)
 async def generate_secure_key(session, bid):
     global SECURE_KEY
     if SECURE_KEY:
@@ -47,16 +44,14 @@ async def generate_secure_key(session, bid):
                 logger.error(f"Failed to set Secure Key. Status: {response.status}")
     except Exception as e:
         logger.error(f"Error generating secure key: {e}")
-        
+
     return SECURE_KEY
 
-# 쿠키 생성 함수 (비동기)
 async def generate_cookie():
     session_id = hashlib.md5(f"session{random.randint(1000, 9999)}{time.time()}".encode()).hexdigest()
     acefcid = f"UID-{hashlib.md5(str(random.randint(0, 1000000)).encode()).hexdigest()}"
     return f"JSESSIONID={session_id}; ACEFCID={acefcid}; ACEUACS=undefined;"
 
-# 첨부 파일 URL 가져오는 함수 (비동기)
 async def fetch_attach_url(session, bid, aid):
     secure_key = await generate_secure_key(session, bid)
     params = {
@@ -86,13 +81,14 @@ async def fetch_attach_url(session, bid, aid):
         logger.error(f"Error fetching attach URL: {e}")
     return None
 
-# IM증권 기사 체크 함수
 async def iMfnsec_checkNewArticle(cur_page="1", single_page_only=True):
     sec_firm_order = 18
     bids = ["R_E08", "R_E09", "R_E14", "R_E03", "R_E04", "R_E05"]
     json_data_list = []
 
-    async with aiohttp.ClientSession() as session:
+    # 명시적 타임아웃 세팅 (Hanging 방지)
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         cookie = await generate_cookie()
         for article_board_order, bid in enumerate(bids):
             firm_info = FirmInfo(
@@ -100,7 +96,7 @@ async def iMfnsec_checkNewArticle(cur_page="1", single_page_only=True):
                 article_board_order=article_board_order
             )
             logger.debug(f"IMfnsec Scraper Start: {firm_info.get_firm_name()} Board {article_board_order} (bid: {bid})")
-            
+
             secure_key = await generate_secure_key(session, bid)
             if not secure_key:
                 continue
@@ -130,7 +126,7 @@ async def iMfnsec_checkNewArticle(cur_page="1", single_page_only=True):
                             jres = json.loads(res_text)[0]
                             if not jres:
                                 break
-                            
+
                             logger.info(f"IMfnsec Scraper: Found {len(jres)} articles for bid {bid} page {page}")
 
                             for item in jres:
@@ -165,7 +161,6 @@ async def iMfnsec_checkNewArticle(cur_page="1", single_page_only=True):
 
     return json_data_list
 
-# main 함수
 async def main():
     results = await iMfnsec_checkNewArticle(single_page_only=True)
     logger.info(f"Total IMfnsec articles fetched: {len(results)}")
