@@ -1,6 +1,6 @@
 """iM Securities — 순수 스크래핑 코어."""
 import base64, hashlib, json, random, re, time, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 
 def _gen_secure_key():
@@ -73,7 +73,7 @@ def scrape_imfn(base_url: str) -> list[dict]:
                         "telegram_url": attach_url, "pdf_url": attach_url,
                         "article_title": item["title"], "writer": item["username"],
                         "key": attach_url, "report_unique_key": attach_url,
-                        "save_time": datetime.now().isoformat(),
+                        "save_time": datetime.now(timezone(timedelta(hours=9))).isoformat(),
                     })
                 except Exception:
                     continue

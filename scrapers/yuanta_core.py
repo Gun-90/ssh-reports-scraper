@@ -1,6 +1,6 @@
 """Yuanta Securities — config 기반 HTML 파싱."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 def scrape_yuanta(cfg: dict) -> list[dict]:
@@ -40,6 +40,6 @@ def scrape_yuanta(cfg: dict) -> list[dict]:
                         firm_nm=cfg["firm_nm"],reg_dt=reg_dt,article_url=article_url,
                         download_url=dl,telegram_url=dl,writer=writer,
                         key=article_url,report_unique_key=article_url,
-                        article_title=title,save_time=datetime.now().isoformat()))
+                        article_title=title,save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
                 except Exception: continue
     return result

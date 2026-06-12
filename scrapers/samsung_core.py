@@ -1,6 +1,6 @@
 """Samsung Securities — config 기반 HTML 파싱."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 def scrape_samsung(cfg: dict) -> list[dict]:
@@ -30,6 +30,6 @@ def scrape_samsung(cfg: dict) -> list[dict]:
                 result.append(dict(sec_firm_order=cfg["sec_firm_order"],article_board_order=board_order,
                     firm_nm=cfg["firm_nm"],reg_dt=reg_dt,download_url="",telegram_url=dl,
                     article_title=title,writer=author,key=dl,report_unique_key=dl,
-                    save_time=datetime.now().isoformat()))
+                    save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
             except Exception: continue
     return result

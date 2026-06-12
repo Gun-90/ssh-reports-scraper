@@ -1,6 +1,6 @@
 """DS Securities — 순수 스크래핑 코어."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
@@ -30,5 +30,5 @@ def scrape_ds(urls: list[str]) -> list[dict]:
                 "firm_nm":"DS투자증권","reg_dt":reg_dt,"article_title":title,
                 "download_url":download_url,"telegram_url":download_url,"pdf_url":download_url,
                 "writer":writer,"key":download_url,"report_unique_key":download_url,
-                "save_time":datetime.now().isoformat()})
+                "save_time":datetime.now(timezone(timedelta(hours=9))).isoformat()})
     return result

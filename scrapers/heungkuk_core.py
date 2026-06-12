@@ -1,6 +1,6 @@
 """Heungkuk Securities — config 기반 HTML 파싱."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 def _norm_date(text):
@@ -49,5 +49,5 @@ def scrape_heungkuk(cfg: dict) -> list[dict]:
             result.append(dict(sec_firm_order=cfg["sec_firm_order"],article_board_order=board_order,
                 firm_nm=cfg["firm_nm"],reg_dt=rd,download_url=dl,telegram_url=dl,pdf_url=dl,
                 article_title=title,article_url=au,writer=writer,key=dl,report_unique_key=dl,
-                save_time=datetime.now().isoformat()))
+                save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
     return result

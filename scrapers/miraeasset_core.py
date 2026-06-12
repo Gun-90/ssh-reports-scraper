@@ -1,6 +1,6 @@
 """Mirae Asset Securities — config 기반 HTML 파싱."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 def scrape_miraeasset(cfg: dict) -> list[dict]:
@@ -26,6 +26,6 @@ def scrape_miraeasset(cfg: dict) -> list[dict]:
                     if m: dl = m.group(1)
                 result.append(dict(sec_firm_order=cfg["sec_firm_order"],article_board_order=idx,
                     firm_nm=cfg["firm_nm"],reg_dt=rdt,writer=writer,download_url=dl,telegram_url=dl,
-                    article_title=title,save_time=datetime.now().isoformat(),key=dl,report_unique_key=dl))
+                    article_title=title,save_time=datetime.now(timezone(timedelta(hours=9))).isoformat(),key=dl,report_unique_key=dl))
             except Exception: continue
     return result

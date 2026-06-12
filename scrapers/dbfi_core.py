@@ -1,6 +1,6 @@
 """DB Financial Investment — config 기반."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 def scrape_dbfi(cfg: dict) -> list[dict]:
     requests.packages.urllib3.disable_warnings()
@@ -20,5 +20,5 @@ def scrape_dbfi(cfg: dict) -> list[dict]:
             result.append(dict(sec_firm_order=19,article_board_order=board_order,firm_nm="DB증권",
                 reg_dt=row[ik["reg_dt"]][:8],article_url="",telegram_url="",pdf_url="",
                 article_title=row[ik["title"]],writer=row[ik["writer"]],
-                key=key,report_unique_key=key,save_time=datetime.now().isoformat()))
+                key=key,report_unique_key=key,save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
     return result

@@ -1,6 +1,6 @@
 """DAOL Securities — config 기반 HTML 파싱."""
 import re, requests, urllib.parse as urlparse
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 def scrape_daol(cfg: dict) -> list[dict]:
@@ -14,8 +14,8 @@ def scrape_daol(cfg: dict) -> list[dict]:
         target = base + "?" + cfg["path_tpl"]
         form = dict(cfg["default_form"])
         form["curPage"] = "1"
-        form["startDate"] = f"{datetime.now().year}/01/01"
-        form["endDate"] = datetime.now().strftime("%Y%m%d")
+        form["startDate"] = f"{datetime.now(timezone(timedelta(hours=9))).year}/01/01"
+        form["endDate"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
         for k in cfg.get("form_keys",[]): form[k] = query.get(k,[""])[0]
         form["searchNm2"] = form.get("rGubun","")
         h = {**cfg["headers"],"Origin":cfg["origin"],"Referer":url,"Host":parsed.netloc}
@@ -41,5 +41,5 @@ def scrape_daol(cfg: dict) -> list[dict]:
             result.append(dict(sec_firm_order=cfg["sec_firm_order"],article_board_order=board_order,
                 firm_nm=cfg["firm_nm"],reg_dt=rd,download_url=dl,telegram_url=dl,
                 article_title=title,writer=writer,key=dl,report_unique_key=dl,
-                save_time=datetime.now().isoformat()))
+                save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
     return result

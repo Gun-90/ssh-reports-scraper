@@ -1,6 +1,6 @@
 """SK Securities — 순수 스크래핑 코어."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 
@@ -40,7 +40,7 @@ def scrape_sks(urls: list[str]) -> list[dict]:
                 "download_url": download_url, "telegram_url": download_url,
                 "pdf_url": download_url, "article_title": title, "writer": writer,
                 "key": download_url, "report_unique_key": download_url,
-                "save_time": datetime.now().isoformat(),
+                "save_time": datetime.now(timezone(timedelta(hours=9))).isoformat(),
             })
 
     return result

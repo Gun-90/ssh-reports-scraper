@@ -1,6 +1,6 @@
 """Hanwha Securities — config 기반 XML 파싱."""
 import re, requests, urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from xml.etree import ElementTree as ET
 
 def scrape_hanwha(cfg: dict) -> list[dict]:
@@ -35,6 +35,6 @@ def scrape_hanwha(cfg: dict) -> list[dict]:
                 result.append(dict(sec_firm_order=cfg["sec_firm_order"],article_board_order=0,
                     firm_nm=cfg["firm_nm"],reg_dt=re.sub(r"[-./]","",rd),download_url=dl,
                     article_title=title,writer=writer,mkt_tp=mkt,key=dl,report_unique_key=dl,
-                    telegram_url=dl,pdf_url=dl,save_time=datetime.now().isoformat()))
+                    telegram_url=dl,pdf_url=dl,save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
             except Exception: continue
     return result

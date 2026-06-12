@@ -1,6 +1,6 @@
 """Hana Securities — config 기반 HTML 파싱."""
 import re, requests
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 def _adjust_date(reg_dt, time_str):
@@ -41,6 +41,6 @@ def scrape_hana(cfg: dict) -> list[dict]:
                     result.append(dict(sec_firm_order=cfg["sec_firm_order"],article_board_order=board_order,
                         firm_nm=cfg["firm_nm"],reg_dt=_adjust_date(rd,ts),download_url=dl,
                         telegram_url=dl,pdf_url=dl,article_title=title,writer=writer,
-                        key=dl,report_unique_key=dl,mkt_tp=mkt,save_time=datetime.now().isoformat()))
+                        key=dl,report_unique_key=dl,mkt_tp=mkt,save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
                 except Exception: continue
     return result

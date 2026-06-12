@@ -1,6 +1,6 @@
 """Hanyang Securities — config 기반 HTML 파싱."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
@@ -30,6 +30,6 @@ def scrape_hanyang(cfg: dict) -> list[dict]:
                 result.append(dict(sec_firm_order=cfg["sec_firm_order"],article_board_order=board_order,
                     firm_nm=cfg["firm_nm"],reg_dt=re.sub(r"[-./]","",reg_dt),
                     article_title=title,article_url=dl,download_url=dl,telegram_url=dl,
-                    pdf_url=dl,key=dl,report_unique_key=dl,save_time=datetime.now().isoformat()))
+                    pdf_url=dl,key=dl,report_unique_key=dl,save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
             except Exception: continue
     return result

@@ -1,6 +1,6 @@
 """Shinyoung Securities — 순수 스크래핑 코어. 모든 scraping detail은 cfg JSON으로 주입."""
 import json, re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 
 def scrape_shinyoung(cfg: dict) -> list[dict]:
@@ -35,7 +35,7 @@ def scrape_shinyoung(cfg: dict) -> list[dict]:
                 "writer": item.get(cfg["item_keys"]["writer"], ""),
                 "article_title": title, "telegram_url": dl, "download_url": dl,
                 "mkt_tp": mkt_tp, "key": dl, "report_unique_key": dl,
-                "save_time": datetime.now().isoformat(),
+                "save_time": datetime.now(timezone(timedelta(hours=9))).isoformat(),
             })
         except Exception:
             continue

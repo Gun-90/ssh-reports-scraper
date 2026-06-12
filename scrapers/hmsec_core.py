@@ -1,6 +1,6 @@
 """Hyundai Motor Securities — config 기반."""
 import time, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 def scrape_hmsec(cfg: dict) -> list[dict]:
     requests.packages.urllib3.disable_warnings()
@@ -24,7 +24,7 @@ def scrape_hmsec(cfg: dict) -> list[dict]:
                         reg_dt=(item.get(ik["reg_dt"],"")).strip(),article_title=item[ik["title"]],
                         writer=(item.get(ik["writer"],"")).strip(),article_url=vu,pdf_url=dl,
                         download_url=dl,telegram_url=vu,key=vu,report_unique_key=vu,
-                        save_time=datetime.now().isoformat()))
+                        save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
                 except Exception: continue
             page += 1
             if total_pages and page > total_pages: break

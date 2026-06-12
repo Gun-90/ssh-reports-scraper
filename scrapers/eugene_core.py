@@ -1,6 +1,6 @@
 """Eugene Securities — 순수 스크래핑 코어."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
 def scrape_eugene(url: str) -> list[dict]:
@@ -29,5 +29,5 @@ def scrape_eugene(url: str) -> list[dict]:
             "firm_nm":"유진투자증권","reg_dt":reg_dt,"article_title":title,
             "download_url":article_url,"telegram_url":article_url,
             "writer":writer,"key":article_url,"report_unique_key":article_url,
-            "save_time":datetime.now().isoformat()})
+            "save_time":datetime.now(timezone(timedelta(hours=9))).isoformat()})
     return result

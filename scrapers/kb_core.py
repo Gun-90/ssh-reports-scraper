@@ -1,11 +1,11 @@
 """KB Securities — config 기반 스크래핑 코어."""
 import re, requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 def scrape_kb(cfg: dict, from_date: str = None, to_date: str = None) -> list[dict]:
     requests.packages.urllib3.disable_warnings()
-    if from_date is None: from_date = datetime(datetime.now().year, 1, 1).strftime("%Y%m%d")
-    if to_date is None: to_date = datetime.now().strftime("%Y%m%d")
+    if from_date is None: from_date = datetime(datetime.now(timezone(timedelta(hours=9))).year, 1, 1).strftime("%Y%m%d")
+    if to_date is None: to_date = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
     p = dict(cfg["payload"])
     p["registdateFrom"] = from_date; p["registdateTo"] = to_date
     resp = requests.post(cfg["url"], json=p, timeout=30, verify=False)
@@ -28,6 +28,6 @@ def scrape_kb(cfg: dict, from_date: str = None, to_date: str = None) -> list[dic
                 reg_dt=re.sub(r"[-./]","",str(item.get(ik["reg_dt"],""))),
                 writer=item.get(ik["writer"],""),download_url=dl,telegram_url=dl,pdf_url=dl,
                 article_title=title,mkt_tp=mkt,key=dl,report_unique_key=dl,
-                save_time=datetime.now().isoformat()))
+                save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
         except Exception: continue
     return result

@@ -1,6 +1,6 @@
 """Sangsangin Securities — config 기반."""
 import re, requests, os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 def scrape_sangsangin(cfg: dict) -> list[dict]:
     requests.packages.urllib3.disable_warnings()
@@ -22,6 +22,6 @@ def scrape_sangsangin(cfg: dict) -> list[dict]:
                 result.append(dict(sec_firm_order=6,article_board_order=idx,firm_nm="상상인증권",
                     reg_dt=re.sub(r"[-./]","",item[ik["reg_dt"]]),download_url=dl,
                     telegram_url=dl,pdf_url=dl,key=dl,report_unique_key=dl,
-                    article_title=item[ik["title"]],save_time=datetime.now().isoformat()))
+                    article_title=item[ik["title"]],save_time=datetime.now(timezone(timedelta(hours=9))).isoformat()))
             except Exception: continue
     return result

@@ -1,6 +1,6 @@
 """Shinhan Securities — 순수 스크래핑 코어."""
 import json, re, requests
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 LOOKBACK_DAYS = 45
 BOARD_MAP = {'giindustry':0,'gicompanyanalyst':1,'giresearchIPO':2,'foreignstock':3,
@@ -17,7 +17,7 @@ def scrape_shinhan(cfg: dict) -> list[dict]:
     headers = {"User-Agent":"Mozilla/5.0","Content-Type":"application/json",
                "Referer":"https://m.shinhansec.com/mweb/invt/shrh/ishrh1001"}
     result = []
-    cutoff = (datetime.now() - timedelta(days=45)).strftime("%Y%m%d")
+    cutoff = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=45)).strftime("%Y%m%d")
 
     # STR boards (POST to mobile API)
     for bbs_name in cfg.get("str_boards","giperiodicaldaily|gistockchart|plananalysis|gicompanyanalyst|giindustry|gieconomy|fxmarket|commodity|gibond|foreignbond").split("|"):
@@ -43,7 +43,7 @@ def scrape_shinhan(cfg: dict) -> list[dict]:
                 result.append({"sec_firm_order":1,"article_board_order":board,
                     "firm_nm":"신한증권","reg_dt":reg_dt,"download_url":dl,"telegram_url":dl,
                     "article_title":item.get("title","").strip(),"writer":item.get("nickname","").strip(),
-                    "key":dl,"report_unique_key":dl,"save_time":datetime.now().isoformat()})
+                    "key":dl,"report_unique_key":dl,"save_time":datetime.now(timezone(timedelta(hours=9))).isoformat()})
             next_key = jres.get("header",{}).get("repeatKeyN","")
             if not next_key or next_key == repeat_key: break
             repeat_key = next_key
@@ -73,5 +73,5 @@ def scrape_shinhan(cfg: dict) -> list[dict]:
                 result.append({"sec_firm_order":1,"article_board_order":board,
                     "firm_nm":"신한증권","reg_dt":reg_dt,"download_url":dl,"telegram_url":dl,
                     "article_title":item.get(t_key,"").strip(),"writer":item.get(w_key,"").strip(),
-                    "key":dl,"report_unique_key":dl,"save_time":datetime.now().isoformat()})
+                    "key":dl,"report_unique_key":dl,"save_time":datetime.now(timezone(timedelta(hours=9))).isoformat()})
     return result
