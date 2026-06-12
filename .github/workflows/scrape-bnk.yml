@@ -28,6 +28,13 @@ jobs:
           echo ""
           echo "================================"
 
+      - name: Setup BNK secrets
+        env:
+          BNK_SECRETS_JSON: \${{ secrets.BNK_URLS_JSON }}
+        run: |
+          mkdir -p ~/secrets/ssh-reports-scraper
+          echo "\$BNK_SECRETS_JSON" > ~/secrets/ssh-reports-scraper/secrets.json
+
       - name: Run BNK standalone scraper
         id: scraper
         run: |
