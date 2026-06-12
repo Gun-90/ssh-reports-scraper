@@ -16,12 +16,7 @@ if __name__ == "__main__":
     raw = os.getenv(URLS_ENV_KEY, "")
     if not raw:
         print(f"[{FIRM_NM}] FATAL: {URLS_ENV_KEY} not set", file=sys.stderr)
-        sys.exit(1)
-    urls = json.loads(raw)
-    if not urls:
-        print(f"[{FIRM_NM}] FATAL: {URLS_ENV_KEY} is empty", file=sys.stderr)
-        sys.exit(1)
 
-    result = scrape_sangsangin(url=urls[0])
+    result = scrape_sangsangin(cfg=json.loads(raw))
     print(f"[{FIRM_NM}] total {len(result)} articles collected", file=sys.stderr)
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
