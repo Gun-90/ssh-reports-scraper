@@ -1,0 +1,454 @@
+# -*- coding:utf-8 -*- 
+import os
+import sys
+import asyncio
+import argparse
+import datetime
+from loguru import logger
+from dotenv import load_dotenv
+
+# 공통 로그 설정 적용
+from utils.logger_util import setup_logger
+setup_logger("scraper")
+
+# --- 모듈 임포트 ---
+from utils.telegram_util import sendMarkDownText
+from utils.sqlite_util import convert_sql_to_telegram_messages
+from models.db_factory import get_db
+
+# business modules
+from modules.LS_0 import LS_checkNewArticle, LS_detail
+from modules.ShinHanInvest_1 import ShinHanInvest_checkNewArticle
+from modules.NHQV_2 import NHQV_checkNewArticle               # GA 이관됨 (full-scrape fallback)
+from modules.HANA_3 import HANA_checkNewArticle
+from modules.KBsec_4 import KB_checkNewArticle                 # GA 이관됨 (full-scrape fallback)
+from modules.Samsung_5 import Samsung_checkNewArticle          # GA 이관됨 (full-scrape fallback)
+from modules.Sangsanginib_6 import Sangsanginib_checkNewArticle # GA 이관됨 (full-scrape fallback)
+from modules.Shinyoung_7 import Shinyoung_checkNewArticle
+from modules.Miraeasset_8 import Miraeasset_checkNewArticle
+from modules.Hmsec_9 import Hmsec_checkNewArticle
+from modules.Kiwoom_10 import Kiwoom_checkNewArticle           # GA 이관됨 (full-scrape fallback)
+from modules.DS_11 import DS_checkNewArticle
+from modules.eugenefn_12 import eugene_checkNewArticle
+from modules.Koreainvestment_13 import Koreainvestment_selenium_checkNewArticle
+from modules.DAOL_14 import DAOL_checkNewArticle
+from modules.TOSSinvest_15 import TOSSinvest_checkNewArticle   # GA 이관됨 (full-scrape fallback)
+from modules.Leading_16 import Leading_checkNewArticle          # GA 이관됨 (full-scrape fallback)
+from modules.Daeshin_17 import Daeshin_checkNewArticle
+from modules.iMfnsec_18 import iMfnsec_checkNewArticle
+from modules.DBfi_19 import DBfi_checkNewArticle, DBfi_detail
+from modules.MERITZ_20 import MERITZ_checkNewArticle
+from modules.Hanwhawm_21 import Hanwha_checkNewArticle         # GA 이관됨 (full-scrape fallback)
+from modules.Hygood_22 import Hanyang_checkNewArticle           # GA 이관됨 (full-scrape fallback)
+from modules.BNKfn_23 import BNK_checkNewArticle
+from modules.Kyobo_24 import Kyobo_checkNewArticle
+from modules.IBKs_25 import IBK_checkNewArticle
+from modules.SKS_26 import Sks_checkNewArticle
+from modules.Yuanta_27 import Yuanta_checkNewArticle
+from modules.Heungkuk_28 import Heungkuk_checkNewArticle       # GA 이관됨 (full-scrape fallback)
+
+load_dotenv()
+token = os.getenv('TELEGRAM_BOT_TOKEN_REPORT_ALARM_SECRET')
+chat_id = os.getenv('TELEGRAM_CHANNEL_ID_REPORT_ALARM')
+SCRAPER_STALE_DAYS = int(os.getenv("SCRAPER_STALE_DAYS", "5"))
+SCRAPER_SYNC_TIMEOUT_SECONDS = int(os.getenv("SCRAPER_SYNC_TIMEOUT_SECONDS", "180"))
+SCRAPER_ASYNC_TIMEOUT_SECONDS = int(os.getenv("SCRAPER_ASYNC_TIMEOUT_SECONDS", "300"))
+LS_LIST_TIMEOUT_SECONDS = int(os.getenv("LS_LIST_TIMEOUT_SECONDS", "900"))
+LS_DETAIL_TIMEOUT_SECONDS = int(os.getenv("LS_DETAIL_TIMEOUT_SECONDS", "900"))
+SCRAPER_HEALTH_ERRORS = []
+
+# GA 이관 증권사 — 평시(30분 간격)에는 GA standalone이 처리, 서버는 full-scrape 시간대에만 fallback 실행
+_GA_FIRMS_SYNC = {
+    Samsung_checkNewArticle,       # 삼성증권 (sec_firm_order=5)
+    Miraeasset_checkNewArticle,    # 미래에셋증권 (sec_firm_order=8)
+    Hmsec_checkNewArticle,         # 현대차증권 (sec_firm_order=9)
+    TOSSinvest_checkNewArticle,    # 토스증권 (sec_firm_order=15)
+    Heungkuk_checkNewArticle,      # 흥국증권 (sec_firm_order=28)
+    Sks_checkNewArticle,           # SK증권 (sec_firm_order=26)
+}
+
+_GA_FIRMS_ASYNC = {
+    NHQV_checkNewArticle,          # NH투자증권 (sec_firm_order=2)
+    HANA_checkNewArticle,          # 하나증권 (sec_firm_order=3)
+    KB_checkNewArticle,            # KB증권 (sec_firm_order=4)
+    Sangsanginib_checkNewArticle,  # 상상인증권 (sec_firm_order=6)
+    Kiwoom_checkNewArticle,        # 키움증권 (sec_firm_order=10)
+    DAOL_checkNewArticle,          # 다올투자증권 (sec_firm_order=14)
+    Leading_checkNewArticle,       # 리딩투자증권 (sec_firm_order=16)
+    iMfnsec_checkNewArticle,       # IM증권 (sec_firm_order=18)
+    DBfi_checkNewArticle,          # DB증권 (sec_firm_order=19)
+    MERITZ_checkNewArticle,        # 메리츠증권 (sec_firm_order=20)
+    Hanwha_checkNewArticle,        # 한화투자증권 (sec_firm_order=21)
+    Hanyang_checkNewArticle,       # 한양증권 (sec_firm_order=22)
+    Kyobo_checkNewArticle,         # 교보증권 (sec_firm_order=24)
+    IBK_checkNewArticle,           # IBK투자증권 (sec_firm_order=25)
+    Yuanta_checkNewArticle,        # 유안타증권 (sec_firm_order=27)
+}
+
+# KST 1시, 7시, 13시, 21시 — GA 장애 대비 전체 증권사 스크래핑
+_FULL_SCRAPE_HOURS = frozenset({1, 7, 13, 21})
+
+def _is_full_scrape_hour():
+    """현재 KST 시각이 full-scrape 시간대(1,7,13,21시)인지 반환"""
+    try:
+        import pytz
+        kst_now = datetime.datetime.now(pytz.timezone("Asia/Seoul"))
+        return kst_now.hour in _FULL_SCRAPE_HOURS
+    except ImportError:
+        # pytz 없으면 KST = UTC+9 근사
+        utc_now = datetime.datetime.now(datetime.timezone.utc)
+        kst_hour = (utc_now.hour + 9) % 24
+        return kst_hour in _FULL_SCRAPE_HOURS
+
+# 모듈별 stale 임계값 오버라이드 (예: "TOSSinvest_checkNewArticle=30,OtherScraper=14")
+_STALE_OVERRIDES = {}
+_raw_overrides = os.getenv("SCRAPER_STALE_OVERRIDES", "")
+if _raw_overrides:
+    for pair in _raw_overrides.split(","):
+        pair = pair.strip()
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            try:
+                _STALE_OVERRIDES[k.strip()] = int(v.strip())
+            except ValueError:
+                pass
+
+
+def log_scraper_health(name, rows):
+    if not isinstance(rows, list):
+        msg = f"{name} returned non-list result: {type(rows)}"
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+        return
+
+    if not rows:
+        msg = f"{name} returned 0 articles. Check source API, selector, or credentials."
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+        return
+
+    reg_dates = sorted({
+        str(row.get("reg_dt", ""))[:8]
+        for row in rows
+        if row.get("reg_dt")
+    })
+    if not reg_dates:
+        msg = f"{name} returned {len(rows)} articles but no reg_dt values."
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+        return
+
+    min_reg_dt = reg_dates[0]
+    max_reg_dt = reg_dates[-1]
+    logger.info(f"{name} => Found {len(rows)} articles (reg_dt {min_reg_dt}~{max_reg_dt})")
+
+    try:
+        max_date = datetime.datetime.strptime(max_reg_dt, "%Y%m%d").date()
+        stale_days = _STALE_OVERRIDES.get(name, SCRAPER_STALE_DAYS)
+        stale_cutoff = datetime.datetime.now().date() - datetime.timedelta(days=stale_days)
+        if max_date < stale_cutoff:
+            msg = (
+                f"{name} latest reg_dt is stale: {max_reg_dt} "
+                f"(older than {stale_days} days)"
+            )
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
+    except ValueError:
+        msg = f"{name} returned invalid max reg_dt: {max_reg_dt}"
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+
+async def enrich_data():
+    logger.info("Starting data enrichment process...")
+    db = get_db()
+    from models.FirmInfo import FirmInfo
+
+    # KST 기준 시간 확인 (20시 이후 = 유휴시간 = 전체 backlog 정리)
+    import pytz
+    from datetime import datetime
+    kst_hour = datetime.now(pytz.timezone('Asia/Seoul')).hour
+    is_idle_time = kst_hour >= 20 or kst_hour < 6
+
+    for sec_firm_order in range(len(FirmInfo.firm_names)):
+        firm_info = FirmInfo(sec_firm_order=sec_firm_order, article_board_order=0)
+        firm_name = firm_info.get_firm_name()
+
+        if firm_name and firm_info.telegram_update_required:
+            # 최근 3일 비어있는 항목은 항상 후처리
+            records = await db.fetch_all_empty_telegram_url_articles(firm_info=firm_info, days_limit=3)
+            if not records: continue
+
+            logger.info(f"[{firm_name}] Found {len(records)} records for enrichment (최근 3일).")
+            try:
+                if sec_firm_order == 19:  # DB증권
+                    update_records = await DBfi_detail(articles=records, firm_info=firm_info, db=db)
+                    # DBfi_detail 내부에서 건별 DB 업데이트를 이미 수행함
+                    success_count = sum(1 for r in update_records if r.get('telegram_url', '').startswith('https://whub.dbsec.co.kr/pv/gate'))
+                    if success_count:
+                        logger.success(f"[DBfi] {success_count}/{len(update_records)}건 gate URL 복구 완료")
+
+                    # 유휴시간(20시~06시) 전체 backlog 정리
+                    if is_idle_time:
+                        backlog = db._fetchall('''
+                            SELECT report_id, article_title, writer, telegram_url, article_url,
+                                   report_date AS reg_dt, key
+                            FROM tbl_sec_reports
+                            WHERE sec_firm_order = 19
+                              AND (telegram_url IS NULL OR telegram_url = ''
+                                   OR telegram_url NOT LIKE 'https://whub.dbsec.co.kr/pv/gate%%')
+                              AND key IS NOT NULL AND key != ''
+                            ORDER BY saved_at DESC
+                            LIMIT 200
+                        ''')
+                        if backlog:
+                            logger.info(f"[DBfi][유휴] 전체 backlog {len(backlog)}건 재처리...")
+                            fixed = await DBfi_detail(articles=backlog, firm_info=firm_info, db=db)
+                            fixed_count = sum(1 for r in fixed if r.get('telegram_url', '').startswith('https://whub.dbsec.co.kr/pv/gate'))
+                            logger.success(f"[DBfi][유휴] {fixed_count}/{len(backlog)}건 gate URL 복구 완료")
+                elif sec_firm_order == 0:  # LS
+                    update_records = await LS_detail(articles=records, firm_info=firm_info)
+                    tasks = [db.update_telegram_url(r['report_id'], r['telegram_url'], r.get('article_title'), pdf_url=r.get('pdf_url') or r['telegram_url']) for r in update_records if r.get('telegram_url')]
+                    if tasks: await asyncio.gather(*tasks)
+
+                    # 최근 1일 이내 upload/ fallback → writer 기반 재시도 (reconstruct_msg_url_from_db 개선)
+                    fallback_records = db._fetchall('''
+                        SELECT report_id, article_title, writer, telegram_url, article_url,
+                               report_date AS reg_dt, key
+                        FROM tbl_sec_reports
+                        WHERE sec_firm_order = 0
+                          AND telegram_url LIKE 'https://www.ls-sec.co.kr/upload/%%'
+                          AND saved_at >= NOW() - INTERVAL '1 day'
+                          AND key IS NOT NULL AND key != ''
+                        ORDER BY saved_at DESC
+                        LIMIT 50
+                    ''')
+                    if fallback_records:
+                        logger.info(f"[LS] 최근 upload/ fallback {len(fallback_records)}건 재시도...")
+                        refixed = await LS_detail(articles=fallback_records, firm_info=firm_info)
+                        refix_tasks = [db.update_telegram_url(r['report_id'], r['telegram_url'], r.get('article_title'), pdf_url=r.get('pdf_url') or r['telegram_url']) for r in refixed if r.get('telegram_url', '').startswith('https://msg.ls-sec.co.kr/')]
+                        if refix_tasks:
+                            await asyncio.gather(*refix_tasks)
+                            logger.success(f"[LS] upload/ fallback {len(refix_tasks)}건 msg URL 재복구 완료")
+
+                    # 유휴시간(20시~06시)에는 전체 LS backlog 정리
+                    if is_idle_time:
+                        backlog = db._fetchall('''
+                            SELECT report_id, article_title, writer, telegram_url, article_url,
+                                   report_date AS reg_dt, key
+                            FROM tbl_sec_reports
+                            WHERE sec_firm_order = 0
+                              AND (telegram_url IS NULL OR telegram_url = ''
+                                   OR telegram_url NOT LIKE 'https://msg.ls-sec.co.kr/%%')
+                              AND key IS NOT NULL AND key != ''
+                            ORDER BY saved_at DESC
+                            LIMIT 200
+                        ''')
+                        if backlog:
+                            logger.info(f"[LS][유휴] 전체 backlog {len(backlog)}건 재처리...")
+                            fixed = await LS_detail(articles=backlog, firm_info=firm_info)
+                            fix_tasks = [db.update_telegram_url(r['report_id'], r['telegram_url'], r.get('article_title'), pdf_url=r.get('pdf_url') or r['telegram_url']) for r in fixed if r.get('telegram_url', '').startswith('https://msg.ls-sec.co.kr/')]
+                            if fix_tasks:
+                                await asyncio.gather(*fix_tasks)
+                                logger.success(f"[LS][유휴] {len(fix_tasks)}건 msg URL 복구 완료")
+                elif sec_firm_order == 11:  # DS
+                    pass
+                logger.success(f"[{firm_name}] Enrichment completed.")
+            except Exception as e:
+                logger.error(f"[{firm_name}] Enrichment failed: {e}")
+
+
+async def daily_send_report(date_str=None):
+    db = get_db()
+    rows = await db.daily_select_data(date_str=date_str, type='send')
+    if rows:
+        messages = convert_sql_to_telegram_messages(rows)
+        logger.info(f"Sending {len(messages)} messages...")
+        for i, msg in enumerate(messages):
+            logger.debug(f"Message {i+1} preview:\n{msg[:500]}...")
+        success = True
+        for msg in messages:
+            try:
+                await sendMarkDownText(token=token, chat_id=chat_id, sendMessageText=msg)
+            except Exception as e:
+                logger.error(f"Telegram error: {e}")
+                success = False
+        if success:
+            await db.daily_update_data(date_str=date_str, fetched_rows=rows, type='send')
+            logger.success("Daily report sent and DB updated.")
+
+async def run_sync_scrapers(sync_funcs, total_data):
+    for func in sync_funcs:
+        try:
+            logger.info(f"Scraping (Sync): {func.__name__}")
+            res = await asyncio.wait_for(
+                asyncio.to_thread(func),
+                timeout=SCRAPER_SYNC_TIMEOUT_SECONDS,
+            )
+            if res:
+                total_data.extend(res)
+            log_scraper_health(func.__name__, res)
+            await asyncio.sleep(1)
+        except asyncio.TimeoutError:
+            msg = f"Sync Scraper Timeout ({func.__name__}): {SCRAPER_SYNC_TIMEOUT_SECONDS}s"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
+        except Exception as e:
+            msg = f"Sync Scraper Error ({func.__name__}): {e}"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
+
+
+async def call_async_scraper(func):
+    """2026-06-11 fix: iscoroutinefunction으로 호출 전 판별 → sync 함수가 이벤트루프 블로킹 방지"""
+    import inspect
+    name = func.__name__
+    try:
+        if inspect.iscoroutinefunction(func):
+            res = await asyncio.wait_for(func(), timeout=SCRAPER_ASYNC_TIMEOUT_SECONDS)
+        else:
+            # sync 함수가 async 리스트에 잘못 들어온 경우 → to_thread로 안전하게
+            res = await asyncio.to_thread(func)
+        return name, res, None
+    except asyncio.TimeoutError:
+        return name, None, f"Async Scraper Timeout ({name}): {SCRAPER_ASYNC_TIMEOUT_SECONDS}s"
+    except Exception as e:
+        return name, None, f"Async Scraper Error ({name}): {e}"
+
+
+async def run_async_scrapers(async_funcs, total_data, max_concurrency=3):
+    logger.info(f"Launching {len(async_funcs)} async scrapers (max concurrency: {max_concurrency})...")
+    sem = asyncio.Semaphore(max_concurrency)
+    
+    async def sem_call(func):
+        async with sem:
+            return await call_async_scraper(func)
+            
+    tasks = []
+    
+    for f in async_funcs:
+        if not callable(f):
+            continue
+        tasks.append(sem_call(f))
+
+    if not tasks:
+        return
+
+    logger.debug(f"Gathering {len(tasks)} scraper tasks with Semaphore")
+    results = await asyncio.gather(*tasks)
+    for name, res, error in results:
+        if error:
+            SCRAPER_HEALTH_ERRORS.append(error)
+            logger.error(error)
+        elif isinstance(res, list):
+            total_data.extend(res)
+            log_scraper_health(name, res)
+        elif res is not None:
+            msg = f"{name} returned non-list result: {type(res)}"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
+
+async def main(date_str=None):
+    logger.info("=================== SCRAPER START ===================")
+    total_data = []
+    db = get_db()
+    
+    # ── LS증권: 목록 2p 스크래핑 → DB 키 비교 → 신규만 detail ──
+    try:
+        ls_articles = await asyncio.wait_for(
+            asyncio.to_thread(LS_checkNewArticle),
+            timeout=LS_LIST_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        ls_articles = []
+        msg = f"LS Scraper Timeout (LS_checkNewArticle): {LS_LIST_TIMEOUT_SECONDS}s"
+        SCRAPER_HEALTH_ERRORS.append(msg)
+        logger.error(msg)
+    if ls_articles:
+        logger.info(f"[LS] 신규 {len(ls_articles)}건 detail 추출 시작")
+        try:
+            enriched = await asyncio.wait_for(
+                LS_detail(ls_articles, db=db),
+                timeout=LS_DETAIL_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            enriched = ls_articles
+            msg = f"LS Detail Timeout (LS_detail): {LS_DETAIL_TIMEOUT_SECONDS}s"
+            SCRAPER_HEALTH_ERRORS.append(msg)
+            logger.error(msg)
+            logger.warning("[LS] detail 타임아웃: 목록에서 확인한 신규 건은 URL 미해결 상태로 DB 저장 후 enrichment에서 재시도합니다.")
+        for a in enriched:
+            total_data.append(a)
+        resolved_count = sum(1 for a in enriched if a.get("telegram_url"))
+        logger.success(f"[LS] {len(enriched)}건 detail 완료 (URL resolved={resolved_count})")
+
+    is_full = _is_full_scrape_hour()
+    if is_full:
+        logger.info("⏰ FULL-SCRAPE MODE: KST {1,7,13,21}시 — GA 이관 증권사 포함 전체 29개사 스크래핑")
+    else:
+        logger.info("📡 REGULAR MODE: GA 미이관 증권사만 스크래핑 (GA standalone이 처리)")
+
+    sync_funcs = [
+        Shinyoung_checkNewArticle, DS_checkNewArticle
+    ]
+    async_functions = [
+        ShinHanInvest_checkNewArticle,
+        Koreainvestment_selenium_checkNewArticle,
+        Daeshin_checkNewArticle,
+        BNK_checkNewArticle,
+        # HANA, DAOL, iMfnsec, MERITZ → GA standalone
+        # eugene_checkNewArticle # 세션 만료 및 제한 에러 (보류)
+    ]
+
+    if is_full:
+        sync_funcs.extend(_GA_FIRMS_SYNC)
+        async_functions.extend(_GA_FIRMS_ASYNC)
+        logger.info(f"[Full-Scrape] sync={len(sync_funcs)}, async={len(async_functions)} total={len(sync_funcs) + len(async_functions)}")
+
+    await run_sync_scrapers(sync_funcs, total_data)
+    await run_async_scrapers(async_functions, total_data)
+
+    if total_data:
+        # 2026-06-11: HTML 엔티티 디코딩 (F&amp;F → F&F, M&amp;A → M&A 등)
+        import html as _html
+        for d in total_data:
+            title = d.get("article_title")
+            if title and ('&amp;' in title or '&lt;' in title or '&gt;' in title or '&quot;' in title):
+                d["article_title"] = _html.unescape(title)
+
+        # 2026-06-11: report_unique_key 우선, 없으면 key 폴백
+        unique = { d.get("report_unique_key") or d.get("key"): d for d in total_data if d.get("report_unique_key") or d.get("key") }
+        total_list = list(unique.values())
+        try:
+            ins, upd = db.insert_json_data_list(total_list)
+            logger.success(f"DB Sync: {ins} new, {upd} updated.")
+            
+            # 새로 insert된 레포트 자동 태그 추출 (enricher) -> 최적화 실패로 인한 일시 주석 처리
+            # new_keys = getattr(db, '_last_inserted_keys', [])
+            # if new_keys:
+            #     try:
+            #         from enricher import EnricherManager
+            #         enricher = EnricherManager(db_manager=db)
+            #         enrich_result = enricher.enrich_by_keys(new_keys)
+            #         logger.info(f"[Enricher] {enrich_result['enriched']}/{len(new_keys)} enriched")
+            #     except Exception as e:
+            #         logger.warning(f"[Enricher] skipped (non-critical): {e}")
+            
+            # DB 삽입 후 잠시 대기하여 트리거/커밋이 확실히 반영되도록 함
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"DB error: {e}")
+
+    await enrich_data()
+    
+    # 발송 전에 DB 연결을 새로 하거나 세션을 확실히 분리하여 최신 데이터를 가져옴
+    await daily_send_report(date_str=date_str)
+    logger.info("=================== SCRAPER END =====================")
+    if SCRAPER_HEALTH_ERRORS:
+        joined = "; ".join(SCRAPER_HEALTH_ERRORS)
+        raise RuntimeError(f"Scraper health check failed: {joined}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('date', type=str, nargs='?', default=None)
+    args = parser.parse_args()
+    asyncio.run(main(date_str=args.date))

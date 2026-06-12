@@ -1,0 +1,443 @@
+# Scraper Codebase LLM Perspective — 킹받는 포인트 분석
+
+> **분석일**: 2026-06-11
+> **대상**: `ssh-reports-scraper` 전체 코드베이스 (29개 증권사 모듈 + 코어 인프라)
+> **관점**: LLM/신규 개발자가 코드를 이해하고 수정할 때 혼란을 주는 구조적 문제점
+
+### 해결 완료 (2026-06-11)
+
+| # | 문제 | 조치 |
+|:---:|------|------|
+| 1 | GA ↔ 서버 코드 중복 (Pain 4) | **10개사 통일**: `scrapers/*_core.py` → GA+서버 wrapper |
+| 2 | `"key:"` 오타 (ShinHanInvest_1) | `"key:"` → `"key"` |
+| 3 | 상상인 하드코딩 쿠키 | env var로 분리 |
+| 4 | scheduler.py dead code | 61줄 제거 |
+| 5 | KB article_board_order=0 | 13종 게시판 분류 + 8,142건 백필 |
+| 6 | DB 타입 불일치 (Pain 17.2) | `saved_at`(timestamptz), `report_date`(date), `telegram_sent`(bool) |
+| 7 | DB 33컬럼 짬뽕 테이블 (Pain 17.1) | 4종 정규화 테이블 분리 + `v_sec_reports_full` 뷰 |
+| 8 | FnGuide 매칭 성능 | `report_date`+`writer`+`board` 인덱스, `v_fnguide_authors` 뷰 |
+| 9 | `key` 컬럼명 모호 | `report_unique_key` 추가, dedup 우선 사용 |
+| 10 | 애널리스트 마스터 공백 | 2,355명 시딩 (`tbm_analyst_master`) |
+| 11 | RAG 임베딩 파이프 없음 | `run/rag_embed_batch.py` 배치 파이프라인 |
+| 12 | `call_async_scraper` 취약점 (Pain 15) | `iscoroutinefunction()` → 호출 전 판별 + to_thread fallback |
+| 13 | FirmInfo 메타클래스 LLM 진입장벽 (Pain 2) | `models/firm_utils.py` 함수형 wrapper 추가 |
+| 14 | `COMMENT_PDF_URL` 대문자 (Pain 17.6) | `comment_pdf_url` 소문자로 마이그레이션 (운영 DB 반영) |
+| 15 | WebScraper `_set_headers()` if/elif | `headers=` 파라미터 추가, 기존 분기는 deprecation |
+| 16 | `tbl_report_ai_tags` → AI 아님 | `tbl_report_enricher_tags`로 rename (enricher = 규칙 기반) |
+| 17 | `tbl_report_downloads` 중복 | DROP (pdf-archiver가 `tbl_sec_reports` 직접 관리) |
+
+### 아직 안 함
+
+| # | 항목 | 난이도 | 비고 |
+|:---:|------|:---:|------|
+| B | LS_0 전역 상태 제거 | 🔴 | `USE_WARP_ONLY`, `skip_boards` — LS 마이그레이션 시 병행 |
+| D | enricher 정규화 테이블 완전 전환 | 🟡 | 지금은 `tbl_sec_reports` + 신규 테이블 이중기록. 옛 컬럼 드랍 후 단일화 |
+| E | 옛 컬럼 드랍 (save_time, reg_dt, main_ch_send_yn, key) | 🟢 | 1주일 검증 후 (의도적 보류) |
+| F | ORM `v_sec_reports_full` 매핑 | 🟡 | Backend submodule 작업. 컬럼 드랍 전 필수 |
+| G | URL 컬럼 통합 (4개→2개) | 🟡 | DB증권 같은 특수케이스 있어서 신중히 |
+
+---
+
+## 1. 모듈 네이밍 불일치 (⭐⭐⭐)
+
+29개 증권사 모듈명이 3가지 컨벤션이 섞여 있음:
+
+| 패턴 | 예시 | 개수 |
+|------|------|:---:|
+| `영문약어_숫자.py` | `LS_0.py`, `DS_11.py`, `SKS_26.py` | 대부분 |
+| `영문풀네임_숫자.py` | `ShinHanInvest_1.py`, `Koreainvestment_13.py` | ~6개 |
+| `소문자+숫자.py` | `eugenefn_12.py`, `iMfnsec_18.py` | 2개 |
+
+**LLM 혼란 포인트**:
+- `HANA_3.py` — 하나증권이지만 Hana → HANA (대문자)
+- `eugenefn_12.py` — 유진투자증권인데 `eugenefn` (eugene + fn?)
+- `Hygood_22.py` — 한양증권인데 Hygood? (옛날 한양증권 영문명)
+- 숫자가 `sec_firm_order`인데 일부는 언더스코어(`_`)로 구분, 일부는 그냥 붙여씀
+
+**권장**: `firm_01_shinhan.py`, `firm_04_kb.py` 같은 통일된 네이밍. 또는 파일명에 `sec_firm_order`를 포함하지 말고 `firm_nm`만 사용.
+
+---
+
+## 2. FirmInfo 메타클래스 — 과도한 추상화 (⭐⭐⭐)
+
+`models/FirmInfo.py`:
+```python
+class MetaFirmInfo(type):          # ← 메타클래스? 왜?
+    @property
+    def firm_names(cls): ...
+
+class FirmInfo(metaclass=MetaFirmInfo):  # ← 싱글톤 데이터 + 인스턴스
+```
+
+**LLM 혼란 포인트**:
+- **메타클래스**는 Python에서도 rare 패턴. LLM은 메타클래스 코드를 이해하는 데 토큰을 많이 소모함.
+- `FirmInfo(sec_firm_order, article_board_order)` — 인스턴스를 매번 생성하는데 실제로는 싱글톤 `_firm_data`를 참조. 생성자 비용 낭비.
+- `FirmInfo.firm_names` → 클래스 프로퍼티지만 메타클래스로 구현되어 있어 추적 어려움.
+- `load_data_from_db()` → 클래스 메서드지만 첫 호출 시점을 예측할 수 없음 (lazy init).
+
+**권장**:
+```python
+# 단순한 데이터 클래스 + 모듈 레벨 함수로 충분
+_firm_data: dict[int, str] = {}
+
+def get_firm_name(sec_firm_order: int) -> str: ...
+def get_board_name(sec_firm_order: int, article_board_order: int) -> str: ...
+```
+
+---
+
+## 3. ConfigManager — 4단계 URL 해상도 (⭐⭐⭐)
+
+`models/ConfigManager.py` — URL을 찾는 경로가 4가지:
+1. `urls` 환경변수 (전체 JSON, generate_env.py가 주입)
+2. `URLS_{key}` 환경변수 (개별)
+3. `~/secrets/ssh-reports-scraper/secrets.json` → `urls.{key}`
+4. `default` 파라미터 또는 `[]`
+
+**LLM 혼란 포인트**:
+- "이 증권사 URL이 어디서 오는가?" → 4개 소스를 다 체크해야 함
+- `MissingConfigError`는 source가 로드되었는데 key만 없을 때만 발생 — 조건이 미묘함
+- `get_base_url()`은 `urls[0]`의 scheme+netloc만 추출 — 첫 번째 URL이 무엇인지 알아야 함
+- GA standalone에서는 `{FIRM}_URLS_JSON` 환경변수만 사용 → ConfigManager와 다른 체계
+
+**권장**: 단일 URL 소스로 통합. secrets.json 하나만 사용하거나 환경변수 하나만 사용.
+
+---
+
+## 4. GA Standalone 코드 중복 (⭐⭐⭐)
+
+동일한 스크래핑 로직이 **두 곳**에 존재:
+
+| 위치 | 용도 |
+|------|------|
+| `modules/KBsec_4.py` | 서버 scraper.py fallback |
+| `run/standalone/kb.py` | GA standalone primary |
+
+**LLM 혼란 포인트**:
+- 버그 수정할 때 두 곳 다 고쳐야 함 = DRY 위반
+- 두 구현이 완전히 동일한지 보장할 수 없음
+- `modules/KBsec_4.py`는 `aiohttp` + `AsyncWebScraper` 사용, `kb.py`는 `requests` 사용 — HTTP 라이브러리도 다름
+
+**권장**: 공통 코어 로직을 `scrapers/kb_core.py`로 추출하고, GA/서버는 wrapper만 제공.
+
+---
+
+## 5. scraper.py 함수 리스트 수동 관리 (⭐⭐)
+
+```python
+sync_funcs = [
+    Miraeasset_checkNewArticle, Sks_checkNewArticle, Shinyoung_checkNewArticle, ...
+]
+async_functions = [
+    ShinHanInvest_checkNewArticle, HANA_checkNewArticle, ...
+]
+_GA_FIRMS_SYNC = {Samsung_checkNewArticle, TOSSinvest_checkNewArticle, ...}
+_GA_FIRMS_ASYNC = {NHQV_checkNewArticle, KB_checkNewArticle, ...}
+```
+
+**LLM 혼란 포인트**:
+- 새 증권사 추가 시 최대 3곳(sync_funcs, async_functions, GA sets)을 수정해야 함
+- 함수가 sync인지 async인지 `scraper_registry.py`에도 정의되어 있음 → 이중 관리
+- `is_full` 조건으로 GA 함수들이 extend되는데, 이 로직이 직관적이지 않음
+
+**권장**: `scraper_registry.py`를 단일 진실 공급원(SSoT)으로 만들고 scraper.py는 registry만 참조.
+
+---
+
+## 6. WebScraper 추상화의 비일관적 사용 (⭐⭐)
+
+`models/WebScraper.py`:
+- `SyncWebScraper` — requests 기반 동기 래퍼
+- `AsyncWebScraper` — aiohttp 기반 비동기 래퍼
+
+**실제 사용 현황**:
+- `ShinHanInvest_1.py`: `SyncWebScraper` 사용 + `aiohttp` 직접 사용 (혼합)
+- `KBsec_4.py`: `AsyncWebScraper.PostJson()` 사용
+- `Leading_16.py`: `AsyncWebScraper.Get()` 사용
+- `HANA_3.py`: `aiohttp` 직접 사용 (WebScraper 미사용)
+- `NHQV_2.py`: `aiohttp` 직접 사용 (WebScraper 미사용)
+
+**LLM 혼란 포인트**:
+- 어떤 모듈은 WebScraper를 쓰고, 어떤 모듈은 직접 HTTP 클라이언트를 씀 → 패턴 파악 불가
+- WebScraper가 타임아웃/재시도를 추상화해주지 않음 → 존재 가치 의문
+- `SyncWebScraper`는 `FirmInfo` 인스턴스를 받는데, 실제로는 URL과 firm_info 로깅만 씀
+
+**권장**: WebScraper를 없애거나, 모든 모듈이 일관되게 사용하도록 강제. HTTP 호출 패턴 통일.
+
+---
+
+## 7. 모듈별 리턴 딕셔너리 필드 비일치 (⭐⭐)
+
+각 모듈이 반환하는 dict 필드가 다름:
+
+| 필드 | KBsec | HANA | NHQV | Shinyoung | Leading | DAOL |
+|------|:---:|:---:|:---:|:---:|:---:|:---:|
+| `sec_firm_order` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `article_board_order` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `firm_nm` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `reg_dt` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `article_title` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `writer` | ✅ | ✅ | ✅ | - | - | ✅ |
+| `download_url` | ✅ | ✅ | - | ✅ | ✅ | ✅ |
+| `telegram_url` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `pdf_url` | ✅ | ✅ | ✅ | - | ✅ | - |
+| `key` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `save_time` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `mkt_tp` | ✅ | ✅ | - | ✅ | - | - |
+| `article_url` | - | - | - | - | - | - |
+
+**LLM 혼란 포인트**:
+- 필수 필드가 무엇인지 명세가 없음
+- `writer`가 없는 모듈은 DB에 null로 들어감 → 검색/필터링 시 누락
+- `mkt_tp`가 없으면 기본값이 무엇인지 추론해야 함 (KR인가? null인가?)
+
+**권장**: dataclass 또는 TypedDict로 출력 스키마 강제. 모듈별로 누락된 필드를 자동 보완하는 레이어 추가.
+
+---
+
+## 8. DB_BACKEND 듀얼 모드 (⭐)
+
+```python
+if os.getenv("DB_BACKEND", "sqlite").lower() == "postgres":
+    cls._load_from_postgres()
+else:
+    cls._load_from_sqlite()
+```
+
+**LLM 혼란 포인트**:
+- SQLite는 로컬 `.db` 파일, PostgreSQL은 원격 서버 → 완전히 다른 커넥션 관리
+- GA standalone에서는 `DB_BACKEND=sqlite`를 강제하는데, SQLite DB가 `/tmp/`에 임시로 생성됨
+- FirmInfo.load_data_from_db()는 PostgreSQL에서 `tbm_sec_firm_info`를 읽지만, SQLite에는 이 테이블이 없음 → `Unknown(N)`으로 표시됨
+- `db_factory.py`의 `get_db()`도 이 분기에 따라 다른 DB 매니저 반환
+
+**권장**: PostgreSQL 전용으로 단일화. SQLite는 테스트 전용으로 명시적 분리.
+
+---
+
+## 9. scheduler.py와 scraper.py의 책임 분리 모호 (⭐)
+
+`scheduler.py`가 하는 일:
+- APScheduler로 cron job 등록
+- GA import 폴링 (5분 간격, `incoming/ga-scrapes/` 디렉토리)
+- `scraper.py main()` 호출 → enrich + send
+
+`scraper.py`가 하는 일:
+- 증권사 스크래핑 (REGULAR / FULL-SCRAPE 모드)
+- enrich_data (DBfi, LS 후처리)
+- daily_send_report (텔레그램 전송)
+
+**LLM 혼란 포인트**:
+- "왜 scheduler가 직접 scraper를 import해서 호출하는가?" → subprocess가 아닌 in-process 호출
+- GA import가 scheduler에 있지만, 스크래핑은 scraper에 있음 → "스크래핑" 책임이 두 파일로 분산
+- `enrich_data()`는 scraper에 있지만, `import_*_artifact.py`에도 후처리 로직이 있음 → 중복
+
+---
+
+## 10. article_board_order = 0 관행 (⭐⭐)
+
+대부분의 증권사가 `article_board_order = 0`을 하드코딩:
+- KB증권: 13개 카테고리가 있지만 최근까지 전부 0으로 저장
+- Leading, Daeshin, DAOL, MERITZ 등: 실제로 여러 게시판을 순회하면서도 board_order는 URL 인덱스만 사용
+
+**LLM 혼란 포인트**:
+- `article_board_order`가 무엇을 의미하는지 모듈마다 다름
+  - HANA: URL_TUPLE의 enumerate index
+  - KB: pCategoryid 매핑 (이제 수정됨)
+  - Shinyoung: 무조건 0
+- `tbm_sec_firm_board_info`에 게시판 정보가 있는 증권사는 소수
+
+---
+
+## 요약: LLM이 가장 헷갈리는 Top 5
+
+| 순위 | 문제 | 영향 | 해결 난이도 |
+|:---:|---|:---|:---:|
+| 1 | 모듈 네이밍 불일치 | 파일 찾기 어려움, import문 혼란 | 낮음 |
+| 2 | GA ↔ 서버 코드 중복 | 수정 시 누락, 동기화 이슈 | 중간 |
+| 3 | FirmInfo 메타클래스 | 과도한 추상화, 토큰 낭비 | 중간 |
+| 4 | 리턴 필드 비일치 | 데이터 무결성, null 누락 | 중간 |
+| 5 | 수동 함수 리스트 관리 | 신규 증권사 추가 시 누락 | 낮음 |
+
+---
+
+## 11. ~~실제 버그: ShinHanInvest_1.py의 `"key:"` 오타~~ ✅ 수정완료 (2026-06-11)
+
+`modules/ShinHanInvest_1.py` line 114 (레거시 `_back` 함수):
+```python
+"key:": LIST_ARTICLE_URL,  # ← 콜론(:)이 key에 포함됨 → "key"가 아닌 "key:" 필드 생성
+```
+`scraper.py`의 dedup 로직은 `d.get("key")`로 접근 → 이 버그가 있는 레코드는 **전부 중복 체크에서 누락**되어 DB upsert가 동작하지 않음. 다행히 현재는 `_back` 함수가 호출되지 않지만, dead code로 남아있어 실수로 활성화될 위험.
+
+---
+
+## 12. LS_0.py — 전역 가변 상태와 O(N²) URL 탐색 (⭐⭐⭐)
+
+`modules/LS_0.py` (720줄, 가장 큰 모듈):
+- `USE_WARP_ONLY` (bool): 모듈 레벨에서 WARP 프록시 사용 여부를 제어. `asyncio.gather`로 여러 코루틴이 동시에 읽고 씀 → data race.
+- `skip_boards` (set): 스크래핑 중 동적으로 수정되는 전역 집합.
+- `reconstruct_msg_url_from_db()`: 최대 21 days × 101 seq = 2,121회 HEAD 요청으로 유효 URL 탐색 → O(N²). API 문서를 알면 O(1)로 가능.
+
+**LLM 혼란 포인트**: 전역 상태가 코루틴 간에 공유되어 비결정적 버그 발생 가능.
+
+---
+
+## 13. ~~Sangsanginib_6.py — 하드코딩된 세션 쿠키~~ ✅ 수정완료 (2026-06-11)
+
+```python
+cookies = {
+    "SSISTOCK_JSESSIONID": "F63EB7BB0166E9ECA5988FF541287E07",  # ← 만료됨
+}
+```
+세션 토큰이 만료되면 `fetch_data()`가 `{}`를 반환하고, 빈 응답은 조용히 스킵됨 → **0건 수집이지만 에러 없음**.
+
+---
+
+## 14. DBfi_19.py — PDF URL 추출 로직이 두 벌 (⭐⭐)
+
+- `extract_dbfi_pdf_url()`: async 버전, 패턴 1개
+- `DBfi_detail()`: sync 버전, 패턴 8개 + fallback 3단계
+
+같은 PDF URL 추출을 두 방식이 다르게 구현 → 버그 수정 시 두 곳 다 고쳐야 함.
+
+---
+
+## 15. call_async_scraper — 취약한 sync/async 감지 (⭐)
+
+`scraper.py` line 289:
+```python
+res = func()
+if asyncio.iscoroutine(res):
+    res = await asyncio.wait_for(res, ...)
+```
+함수를 **먼저 호출**하고 반환값이 코루틴인지 확인 → sync 함수를 이벤트 루프 스레드에서 실행해버림.
+
+---
+
+## 16. scheduler.py — Dead code와 subprocess 낭비 (⭐)
+
+- `run_enricher_batch`, `run_enricher_backfill`: 주석 처리된 채 방치
+- `scraper.py`를 매번 subprocess로 새로 spawn → 29개 모듈을 매번 import (캐시 무용)
+- `in-process`로 `import scraper; await scraper.main()` 호출하면 훨씬 효율적
+
+---
+
+## 심각도 기반 요약
+
+**Critical (데이터 손실/무결성)**:
+1. 공통 리턴 스키마 부재 → 필드 누락으로 DB null (Pain 7, 1)
+2. `"key:"` 오타 → 중복 제거 실패 (Pain 13 → 11)
+3. LS_0 전역 상태 → data race (Pain 11 → 12)
+4. 상상인 세션 만료 → 무소식 실패 (Pain 14 → 13)
+
+**High (유지보수 장애)**:
+5. GA ↔ 서버 코드 중복 (Pain 4)
+6. ConfigManager 3중 URL 해상도 (Pain 3)
+7. 수동 함수 리스트 3곳 관리 (Pain 5)
+8. WebScraper의 firm-specific 하드코딩 (Pain 7)
+
+**Medium (인지 부하)**:
+9. FirmInfo 메타클래스 (Pain 2)
+10. DB_BACKEND 듀얼 모드 (Pain 8)
+11. DBfi 이중 PDF 추출 경로 (Pain 14)
+12. 모듈 네이밍 불일치 (Pain 1)
+
+---
+
+## 단기 개선 제안 (다음 스프린트)
+
+1. **공통 리턴 스키마 정의**: `models/report_schema.py` → `ReportArticle` dataclass + 런타임 검증
+2. **모듈 레지스트리 자동화**: `scraper_registry.py` → `@register_firm` 데코레이터로 SSoT 통합
+3. **GA/서버 코드 통합**: `scrapers/kb_core.py` 패턴으로 중복 제거, 11개 standalone을 core 모듈로 대체
+4. **FirmInfo 단순화**: 메타클래스 제거, 일반 함수로 교체
+5. **Dead code 제거**: ShinHanInvest `_back` 함수, scheduler 주석 블록
+6. **상상인 세션 환경변수화**: `SSISTOCK_JSESSIONID`를 env var로
+7. **LS_0 리팩토링**: 전역 상태 제거, URL 재구성 O(1) 최적화
+
+---
+
+## 17. DB 스키마 비효율 (2026-06-11 실측 분석)
+
+### 17.1 거의 100% 미사용 컬럼 (제거 검토)
+
+운영 DB 28.4만건 기준:
+
+| 컬럼 | null/empty | 비고 |
+|------|:---:|------|
+| `gemini_summary` | 99.9% | Gemini 요약 실험 → 폐기됨 |
+| `summary_time` | 99.9% | 상동 |
+| `summary_model` | 99.9% | 상동 |
+| `archive_path` | 99.2% | PDF 아카이빙 미구현 |
+| `sector` | 99.5% | LLM 태그 추출 미가동 |
+| `rating` | 99.9% | 프리미엄 기능 비활성 |
+| `revision_type` | 99.9% | 상동 |
+| `report_type` | 99.9% | 상동 |
+| `target_price` | 99.9% | 미사용 |
+| `tags` | 99.2% | enricher 미가동 |
+| `stock_names` | 99.6% | 상동 |
+| `stock_tickers` | 99.9% | 상동 |
+| `fnguide_summary_id` | 97.7% | FnGuide 매칭 거의 미사용 |
+| `retry_count` | 97.1% | 재시도 로직 미사용 |
+
+**LLM 혼란**: 33개 컬럼 중 14개(42%)가 사실상 dead weight. `SELECT *`나 ORM 매핑 시 불필요한 데이터까지 로드.
+
+### 17.2 데이터 타입 불일치 (⭐⭐⭐)
+
+| 컬럼 | 현재 타입 | 실제 저장값 | 맞는 타입 |
+|------|:---:|------|:---:|
+| `save_time` | `text` | `2025-01-14T15:01:05` | `timestamptz` |
+| `reg_dt` | `text` | `20240430` (8자) | `date` |
+| `main_ch_send_yn` | `text` | `Y` / `N` | `boolean` 또는 `char(1)` |
+| `download_status_yn` | `text` | `Y` / `''` | `boolean` |
+
+**LLM 혼란**: LLM이 SQL 작성할 때 `WHERE save_time > '2026-01-01'` 같은 문자열 비교를 함 → 인덱스 활용 불가. 날짜 연산도 `::date` 캐스팅 필요.
+
+### 17.3 의미 불명확한 컬럼/enum
+
+| 컬럼 | 값 분포 | 문제 |
+|------|------|------|
+| `sync_status` | 2(91%) / 0(8%) / 3(7%) / 9(0.6%) | 0/2/3/9가 각각 무슨 의미인지 코드에만 존재, DB 주석 없음 |
+| `pdf_sync_status` | 2(96%) / 3(2%) / 0(1%) / 9(0.6%) | sync_status와 같은 enum인데 별도 컬럼 — 왜 분리했는지 불명 |
+| `main_ch_send_yn` | Y(69%) / N(31%) | "main_ch" = Telegram 메인채널. `telegram_sent`가 더 직관적 |
+
+### 17.4 URL 컬럼 중복
+
+4개의 URL 컬럼 존재:
+- `article_url` — 게시글 원문 페이지
+- `download_url` — PDF 다운로드 URL
+- `telegram_url` — 텔레그램 전송용 URL
+- `pdf_url` — PDF 직접 URL
+
+실제로 많은 증권사가 `download_url = telegram_url = pdf_url`로 동일한 값을 3개 컬럼에 중복 저장. `article_url`도 종종 같은 값.
+
+### 17.5 mkt_tp 값 불일치
+
+| 값 | 건수 | 비고 |
+|------|:---:|---|
+| `KR` | 275,135 | 국내 |
+| `GLOBAL` | 7,171 | 해외 |
+| `US` | 1,605 | 일부 모듈만 `US` 사용 |
+| `JP` | 17 | 일부 모듈만 `JP` 사용 |
+
+`US`/`JP`는 `GLOBAL`로 통일 가능. 모듈마다 다른 값 쓰는 건 일관성 문제.
+
+### 17.6 TBM 테이블 컬럼명 불일치
+
+`tbm_sec_firm_info`:
+- `COMMENT_PDF_URL` — 다른 컬럼은 모두 소문자인데 이것만 대문자 (PostgreSQL은 따옴표 없는 식별자를 소문자로 접음 → 실제 컬럼명은 `comment_pdf_url`인데 DDL에 대문자로 남아 혼란)
+
+`tbm_sec_firm_board_info`:
+- `board_cd` → 거의 모든 row가 null. 사용되지 않는 컬럼.
+
+---
+
+## DB 개선 제안 (쉬운 것부터)
+
+| 난이도 | 작업 |
+|:---:|---|
+| ~~🟢~~ | ~~`COMMENT_PDF_URL` → 소문자~~ → 3개사만 사용, 개발자 노트 용도 확인 |
+| 🟢 | `mkt_tp` `US`/`JP` → 보류 (국가 구분 정보 손실 우려) |
+| ~~🟡~~ | ~~`save_time` → `timestamptz`, `reg_dt` → `date`~~ ✅ 완료 (2026-06-11) |
+| ~~🟡~~ | ~~14개 미사용 컬럼 분리~~ ✅ 완료: `tbl_report_ai_tags`, `tbl_report_ai_summaries`, `tbl_report_price_targets`, `tbl_report_downloads` |
+| 🟡 | `sync_status` enum 의미를 DB comment로 문서화 |
+| 🟡 | URL 컬럼 통합 (`article_url` / `download_url` / `telegram_url` / `pdf_url` → 2개로 축소) |
+| ✅ | FnGuide 매칭 성능: `report_date` + `writer` + `board_order` 인덱스, `v_fnguide_authors` 뷰 |

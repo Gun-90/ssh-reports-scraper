@@ -1,0 +1,215 @@
+name: Build and Deploy to GHCR
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/ssh-reports-scraper
+  SSH_LIBRARY_ENABLED: ${{ secrets.SSH_LIBRARY_DEPLOY_KEY != '' }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      keyword-alert: ${{ steps.filter.outputs.keyword-alert }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            keyword-alert:
+              - 'scheduler_keyword_alert.py'
+              - 'run/keyword_alert.py'
+              - 'utils/**'
+              - 'models/PostgreSQLManager.py'
+              - 'pyproject.toml'
+              - 'uv.lock'
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare optional vendor context
+        run: mkdir -p vendor/ssh_library
+
+      - name: Checkout private ssh-library
+        if: ${{ env.SSH_LIBRARY_ENABLED == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: liante0904/ssh-library
+          path: vendor/ssh_library
+          ssh-key: ${{ secrets.SSH_LIBRARY_DEPLOY_KEY }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run import/config guard tests
+        run: uv run pytest tests/test_config_manager.py tests/test_scraper_imports.py -q
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          build-contexts: |
+            ssh_library=./vendor/ssh_library
+          build-args: |
+            INSTALL_SSH_LIBRARY=${{ env.SSH_LIBRARY_ENABLED == 'true' && '1' || '0' }}
+          platforms: linux/amd64, linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [build-and-push, changes]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_KEYWORD_ALERT: ${{ needs.changes.outputs.keyword-alert }}
+          EXPECTED_SHA: ${{ github.sha }}
+          PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          SSH_LIBRARY_ENABLED: ${{ env.SSH_LIBRARY_ENABLED }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DEPLOY_KEYWORD_ALERT,EXPECTED_SHA,PROJECT_DIR,REPO_NAME,REPO_OWNER,SSH_LIBRARY_ENABLED
+          script: |
+            set -eu
+            DEPLOY_KEYWORD_ALERT="${DEPLOY_KEYWORD_ALERT:-false}"
+
+            DEPLOY_DIR="${PROJECT_DIR:-/home/ubuntu/workspace/external.reports-hub/apps/scrapers/ssh-reports-scraper}"
+            FALLBACK_DIR="/home/ubuntu/workspace/external.reports-hub/apps/scrapers/ssh-reports-scraper"
+
+            if [ ! -d "$DEPLOY_DIR/.git" ] || [ ! -f "$DEPLOY_DIR/docker-compose.yml" ]; then
+              if [ "$DEPLOY_DIR" != "$FALLBACK_DIR" ] && [ -d "$FALLBACK_DIR/.git" ] && [ -f "$FALLBACK_DIR/docker-compose.yml" ]; then
+                echo "PROJECT_DIR is not a deployable repo; using $FALLBACK_DIR"
+                DEPLOY_DIR="$FALLBACK_DIR"
+              else
+                echo "Deploy directory is invalid: $DEPLOY_DIR"
+                exit 1
+              fi
+            fi
+
+            # deploy_prepare.py로 git fetch/reset + .env 재생성
+            python3 ~/secrets/deploy_prepare.py \
+              --dir  "$DEPLOY_DIR" \
+              --repo "git@github.com:$REPO_OWNER/$REPO_NAME.git" \
+              --sha  "$EXPECTED_SHA" \
+              --app  "reports-scraper"
+
+            cd "$DEPLOY_DIR"
+
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            compose() {
+              if docker compose version >/dev/null 2>&1; then
+                docker compose "$@"
+              else
+                docker-compose "$@"
+              fi
+            }
+
+            # 1) 현재 가동 중인 컨테이너 색상 감지 (ssh-reports-scraper-main-scraper-)
+            CURRENT_ENV="$(docker ps --format '{{.Names}}' | grep '^ssh-reports-scraper-main-scraper-' || true)"
+
+            if echo "$CURRENT_ENV" | grep -q 'blue'; then
+              TARGET_COLOR="green"
+              OLD_COLOR="blue"
+            elif echo "$CURRENT_ENV" | grep -q 'green'; then
+              TARGET_COLOR="blue"
+              OLD_COLOR="green"
+            else
+              # 최초 배포 시 또는 검색 안 될 경우 기본값 blue, OLD는 구버전 prod 정리 대상
+              TARGET_COLOR="blue"
+              OLD_COLOR="prod"
+            fi
+
+            echo "Deploy target color: $TARGET_COLOR (active old color: $OLD_COLOR)"
+
+            # 2) 이미지 강제 pull + 컨테이너 재생성
+            docker pull "ghcr.io/$REPO_OWNER/$REPO_NAME:latest"
+            compose up -d --no-build --force-recreate "main-scraper-$TARGET_COLOR"
+
+            # 3) 신규 스케줄러 헬스 체크
+            echo "Main scraper health check..."
+            RUNNING_SHA="$(docker inspect "ssh-reports-scraper-main-scraper-$TARGET_COLOR" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+            if [ "$RUNNING_SHA" != "$EXPECTED_SHA" ]; then
+              echo "main-scraper-$TARGET_COLOR revision mismatch: expected=$EXPECTED_SHA running=$RUNNING_SHA"
+              exit 1
+            fi
+            echo "main-scraper-$TARGET_COLOR running revision: $RUNNING_SHA"
+
+            if [ "${SSH_LIBRARY_ENABLED:-false}" = "true" ]; then
+              # 라이브러리 임포트 연동이 신규 컨테이너 내부에서 잘 수행되는지 검증
+              docker exec "ssh-reports-scraper-main-scraper-$TARGET_COLOR" \
+                .venv/bin/python -c "from ssh_library import SecReportsManager; print('ssh-library import OK:', SecReportsManager.__name__)"
+            fi
+
+            # 4) Keyword Alert 서비스도 세트로 배포
+            compose up -d --no-build --force-recreate "report-keyword-alert-$TARGET_COLOR"
+
+            # 5) Traffic (가동 상태) 스위칭 완료 확인 후 이전 컨테이너 정리
+            sleep 5
+            if [ "$OLD_COLOR" = "blue" ] || [ "$OLD_COLOR" = "green" ]; then
+              echo "Stopping old containers ($OLD_COLOR)..."
+              compose stop "main-scraper-$OLD_COLOR" "report-keyword-alert-$OLD_COLOR" || true
+              compose rm -f "main-scraper-$OLD_COLOR" "report-keyword-alert-$OLD_COLOR" || true
+            elif [ "$OLD_COLOR" = "prod" ]; then
+              # 구시대 prod 컨테이너 청소 및 퇴출
+              echo "Stopping legacy prod containers..."
+              docker stop ssh-reports-scraper-main-scraper-prod ssh-reports-scraper-keyword-alert-prod || true
+              docker rm ssh-reports-scraper-main-scraper-prod ssh-reports-scraper-keyword-alert-prod || true
+            fi
+
+            docker image prune -f

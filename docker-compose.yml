@@ -1,0 +1,128 @@
+services:
+  main-scraper-blue:
+    platform: linux/arm64
+    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:latest
+    container_name: ssh-reports-scraper-main-scraper-blue
+    build:
+      context: .
+      args:
+        INSTALL_SSH_LIBRARY: ${INSTALL_SSH_LIBRARY:-0}
+      additional_contexts:
+        ssh_library: ../../../../lib/ssh_library
+    restart: unless-stopped
+    network_mode: "host"
+    env_file:
+      - .env
+    volumes:
+      - ~/logs:/log
+      - ~/sqlite3:/app/db
+      - ~/secrets/ssh-reports-scraper:/home/appuser/secrets/ssh-reports-scraper:ro
+      - ~/incoming/ga-scrapes:/app/incoming/ga-scrapes:rw
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - TZ=Asia/Seoul
+      - LOG_BASE_DIR=/log
+      - LOG_FILE=/log/logfile.log
+      - SQLITE_DB_PATH=/app/db/telegram.db
+      - SOCKS_PROXY_URL=socks5h://localhost:9091
+      - SCRAPER_STALE_OVERRIDES=${SCRAPER_STALE_OVERRIDES:-TOSSinvest_checkNewArticle=30}
+    stdin_open: true
+    tty: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  main-scraper-green:
+    platform: linux/arm64
+    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:latest
+    container_name: ssh-reports-scraper-main-scraper-green
+    build:
+      context: .
+      args:
+        INSTALL_SSH_LIBRARY: ${INSTALL_SSH_LIBRARY:-0}
+      additional_contexts:
+        ssh_library: ../../../../lib/ssh_library
+    restart: unless-stopped
+    network_mode: "host"
+    env_file:
+      - .env
+    volumes:
+      - ~/logs:/log
+      - ~/sqlite3:/app/db
+      - ~/secrets/ssh-reports-scraper:/home/appuser/secrets/ssh-reports-scraper:ro
+      - ~/incoming/ga-scrapes:/app/incoming/ga-scrapes:rw
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - TZ=Asia/Seoul
+      - LOG_BASE_DIR=/log
+      - LOG_FILE=/log/logfile.log
+      - SQLITE_DB_PATH=/app/db/telegram.db
+      - SOCKS_PROXY_URL=socks5h://localhost:9091
+      - SCRAPER_STALE_OVERRIDES=${SCRAPER_STALE_OVERRIDES:-TOSSinvest_checkNewArticle=30}
+    stdin_open: true
+    tty: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  report-keyword-alert-blue:
+    platform: linux/arm64
+    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:latest
+    container_name: ssh-reports-scraper-keyword-alert-blue
+    build:
+      context: .
+      args:
+        INSTALL_SSH_LIBRARY: ${INSTALL_SSH_LIBRARY:-0}
+      additional_contexts:
+        ssh_library: ../../../../lib/ssh_library
+    restart: always
+    network_mode: "host"
+    env_file: .env
+    volumes:
+      - ~/sqlite3:/app/db
+      - ~/logs:/log
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - SQLITE_DB_PATH=/app/db/telegram.db
+      - LOG_BASE_DIR=/log
+      - TZ=Asia/Seoul
+      - POSTGRES_HOST=localhost
+    command: [".venv/bin/python", "scheduler_keyword_alert.py"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  report-keyword-alert-green:
+    platform: linux/arm64
+    image: ${DOCKER_IMAGE_NAME:-ghcr.io/liante0904/ssh-reports-scraper}:latest
+    container_name: ssh-reports-scraper-keyword-alert-green
+    build:
+      context: .
+      args:
+        INSTALL_SSH_LIBRARY: ${INSTALL_SSH_LIBRARY:-0}
+      additional_contexts:
+        ssh_library: ../../../../lib/ssh_library
+    restart: always
+    network_mode: "host"
+    env_file: .env
+    volumes:
+      - ~/sqlite3:/app/db
+      - ~/logs:/log
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - SQLITE_DB_PATH=/app/db/telegram.db
+      - LOG_BASE_DIR=/log
+      - TZ=Asia/Seoul
+      - POSTGRES_HOST=localhost
+    command: [".venv/bin/python", "scheduler_keyword_alert.py"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

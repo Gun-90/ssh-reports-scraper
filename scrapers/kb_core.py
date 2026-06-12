@@ -1,0 +1,33 @@
+"""KB Securities — config 기반 스크래핑 코어."""
+import re, requests
+from datetime import datetime
+
+def scrape_kb(cfg: dict, from_date: str = None, to_date: str = None) -> list[dict]:
+    requests.packages.urllib3.disable_warnings()
+    if from_date is None: from_date = datetime(datetime.now().year, 1, 1).strftime("%Y%m%d")
+    if to_date is None: to_date = datetime.now().strftime("%Y%m%d")
+    p = dict(cfg["payload"])
+    p["registdateFrom"] = from_date; p["registdateTo"] = to_date
+    resp = requests.post(cfg["url"], json=p, timeout=30, verify=False)
+    resp.raise_for_status()
+    jres = resp.json()
+    for k in cfg["list_key"].split("."): jres = jres.get(k, [])
+    items = jres if isinstance(jres, list) else []
+    result = []
+    for item in items:
+        try:
+            ik = cfg["item_keys"]; cat = item.get(ik["cat_id"], 0)
+            board = cfg.get("category_map",{}).get(str(cat), 0)
+            mkt = "GLOBAL" if cat == cfg.get("global_cat", -1) else "KR"
+            doc_id = item.get(ik["doc_id"], "")
+            dl = cfg["url_tpl"].replace("{doc_id}", str(doc_id))
+            title = item.get(ik["title"], ""); sub = item.get(ik["subtitle"], "")
+            if title and title not in sub: title = f"{title} : {sub}"
+            elif sub: title = sub
+            result.append(dict(sec_firm_order=4,article_board_order=board,firm_nm="KB증권",
+                reg_dt=re.sub(r"[-./]","",str(item.get(ik["reg_dt"],""))),
+                writer=item.get(ik["writer"],""),download_url=dl,telegram_url=dl,pdf_url=dl,
+                article_title=title,mkt_tp=mkt,key=dl,report_unique_key=dl,
+                save_time=datetime.now().isoformat()))
+        except Exception: continue
+    return result
