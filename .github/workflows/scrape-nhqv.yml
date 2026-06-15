@@ -1,9 +1,9 @@
 name: NH Investment Scraper → SCP
 
 on:
-  schedule:
-    # KST 08-17 평일 매시간
-    - cron: '0 * * * 1-5'
+  # schedule:
+  # # KST 08-17 평일 매시간
+  # - cron: '0 * * * 1-5'
   workflow_dispatch:
 
 jobs:
