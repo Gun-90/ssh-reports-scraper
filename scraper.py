@@ -439,6 +439,13 @@ async def main(date_str=None):
             logger.error(f"DB error: {e}")
 
     await enrich_data()
+
+    # OneDrive 업로드: 신규 리포트를 매 실행마다 자동 업로드 (실패해도 본류 진행)
+    try:
+        from utils.onedrive_util import upload_recent_to_onedrive
+        await upload_recent_to_onedrive(db, days=2)
+    except Exception as e:
+        logger.error(f"[OneDrive] 업로드 단계 실패: {e}")
     
     # 발송 전에 DB 연결을 새로 하거나 세션을 확실히 분리하여 최신 데이터를 가져옴
     await daily_send_report(date_str=date_str)

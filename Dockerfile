@@ -7,10 +7,18 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
-    rclone \
+    unzip \
     chromium \
     chromium-driver \
     && rm -rf /var/lib/apt/lists/*
+
+# 2-1. rclone 신버전 설치
+# Debian apt의 rclone(v1.60.1-DEV)은 OneDrive personal(SharePoint 백엔드)
+# 멀티파트 업로드가 Unauthenticated로 실패한다. 공식 v1.74.3로 교체.
+RUN wget -q https://downloads.rclone.org/v1.74.3/rclone-v1.74.3-linux-arm64.zip -O /tmp/rclone.zip \
+    && unzip -j /tmp/rclone.zip -d /tmp/rclone \
+    && install -m755 /tmp/rclone/rclone /usr/bin/rclone \
+    && rm -rf /tmp/rclone*
 
 # 3. uv 설치
 RUN pip install uv
@@ -23,7 +31,7 @@ WORKDIR /app
 
 # 6. 의존성 설치 (캐시 활용)
 # 소유권을 appuser로 지정하여 파일 복사
-COPY --chown=appuser:appgroup pyproject.toml uv.lock ./ 
+COPY --chown=appuser:appgroup pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-cache
 
 # 6-1. 선택적 private ssh-library 설치

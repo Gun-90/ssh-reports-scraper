@@ -18,6 +18,7 @@ services:
       - ~/sqlite3:/app/db
       - ~/secrets/ssh-reports-scraper:/home/appuser/secrets/ssh-reports-scraper:ro
       - ~/incoming/ga-scrapes:/app/incoming/ga-scrapes:rw
+      - ~/.config/rclone:/home/appuser/.config/rclone:rw
     environment:
       - APP_ENV=${APP_ENV:-production}
       - TZ=Asia/Seoul
@@ -53,6 +54,7 @@ services:
       - ~/sqlite3:/app/db
       - ~/secrets/ssh-reports-scraper:/home/appuser/secrets/ssh-reports-scraper:ro
       - ~/incoming/ga-scrapes:/app/incoming/ga-scrapes:rw
+      - ~/.config/rclone:/home/appuser/.config/rclone:rw
     environment:
       - APP_ENV=${APP_ENV:-production}
       - TZ=Asia/Seoul
