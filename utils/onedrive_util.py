@@ -60,6 +60,19 @@ async def upload_pdf_to_onedrive(
             close_session = True
 
         try:
+            # GnuBoard(DS투자증권 등) download.php는 게시글을 먼저 조회해야 다운로드 권한
+            # 쿠키가 발급된다. 같은 세션으로 board.php(뷰)를 선조회한 뒤 다운로드한다.
+            if "/bbs/download.php" in pdf_url:
+                gm = re.search(r"bo_table=([^&]+)&wr_id=(\d+)", pdf_url)
+                if gm:
+                    base = pdf_url.split("/bbs/")[0]
+                    view_url = f"{base}/bbs/board.php?bo_table={gm.group(1)}&wr_id={gm.group(2)}"
+                    try:
+                        async with session.get(view_url, timeout=aiohttp.ClientTimeout(total=30)) as vr:
+                            await vr.read()
+                    except Exception:
+                        pass
+
             async with session.get(pdf_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 if resp.status != 200:
                     logger.warning(f"[OneDrive] PDF download failed ({resp.status}): {pdf_url}")
@@ -68,6 +81,12 @@ async def upload_pdf_to_onedrive(
         finally:
             if close_session:
                 await session.close()
+
+        # 오류/안내 HTML을 PDF로 저장하지 않도록 가드 (DS 권한오류 페이지 등)
+        head = pdf_bytes[:1024].lstrip()
+        if not pdf_bytes.startswith(b"%PDF") and (head[:1] == b"<" or b"<html" in head.lower() or b"<!doctype" in head.lower()):
+            logger.warning(f"[OneDrive] PDF 아님(HTML 응답) 스킵: {pdf_url}")
+            return None
 
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(pdf_bytes)
