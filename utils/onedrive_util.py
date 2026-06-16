@@ -10,8 +10,6 @@ from loguru import logger
 RCLONE_REMOTE = "onedrive:증권리포트"
 RCLONE_BIN = os.getenv("RCLONE_BIN", "/usr/bin/rclone")
 RCLONE_CONFIG = os.getenv("RCLONE_CONFIG", "/home/appuser/.config/rclone/rclone.conf")
-# 업로드 완료 report_id 매니페스트 (영속 마운트 /app/db). 중앙 PG 스키마 미변경.
-MANIFEST_PATH = os.getenv("ONEDRIVE_MANIFEST", "/app/db/onedrive_uploaded.txt")
 
 # rclone subprocess는 컨테이너의 SOCKS5 프록시 env(HTTP_PROXY 등)를 상속하면
 # OneDrive 업로드가 실패한다. 프록시 변수를 제거한 환경을 따로 만들어 전달한다.
@@ -123,55 +121,48 @@ async def upload_batch(records: list[dict], concurrency: int = 1, delay: float =
     return results
 
 
-# --- 매니페스트 기반 증분 업로드 (스크래퍼 파이프라인에서 호출) ---
-
-def _load_manifest() -> set[str]:
-    try:
-        with open(MANIFEST_PATH, encoding="utf-8") as f:
-            return {line.strip() for line in f if line.strip()}
-    except FileNotFoundError:
-        return set()
-
-def _append_manifest(keys: list[str]) -> None:
-    if not keys:
-        return
-    try:
-        os.makedirs(os.path.dirname(MANIFEST_PATH), exist_ok=True)
-        with open(MANIFEST_PATH, "a", encoding="utf-8") as f:
-            for k in keys:
-                f.write(f"{k}\n")
-    except Exception as e:
-        logger.error(f"[OneDrive] manifest 기록 실패: {e}")
-
+# --- 증분 업로드 (스크래퍼 파이프라인에서 호출) ---
+# 업로드 성공 시 tbl_sec_reports.archive_path에 OneDrive 경로를 기록하고,
+# archive_path 미기록 여부를 중복 방지 기준으로 사용한다(별도 매니페스트 불필요).
 
 async def upload_recent_to_onedrive(db, days: int = 2) -> None:
-    """최근 days일 내 pdf_url 있는 리포트 중 아직 안 올린 것만 OneDrive 업로드.
+    """최근 days일 내 pdf_url 있고 archive_path 미기록인 리포트를 OneDrive 업로드.
 
-    중복 방지는 로컬 매니페스트(report_id)로 처리하여 중앙 PostgreSQL 스키마를
-    변경하지 않는다. 스크래퍼 main()의 enrich 직후 호출된다.
+    성공 건은 archive_path = OneDrive 경로로 UPDATE. 스키마 변경 없이 기존
+    archive_path 컬럼만 채운다. 스크래퍼 main()의 enrich 직후 호출된다.
     """
     if not _rclone_available():
         logger.warning(f"[OneDrive] rclone 미발견({RCLONE_BIN}) — 업로드 스킵")
+        return
+    if not hasattr(db, "_execute"):
+        logger.error("[OneDrive] db._execute 없음 — archive_path 기록 불가, 업로드 스킵")
         return
     since = (datetime.date.today() - datetime.timedelta(days=days)).strftime("%Y%m%d")
     rows = db._fetchall(
         "SELECT report_id, sec_firm_order, article_title, reg_dt, pdf_url "
         "FROM tbl_sec_reports "
         "WHERE reg_dt >= %s AND pdf_url IS NOT NULL AND LENGTH(pdf_url) > 0 "
+        "AND (archive_path IS NULL OR archive_path = '') "
         "ORDER BY reg_dt",
         (since,),
     )
-    done = _load_manifest()
-    records = [
-        {**dict(r), "key": str(r["report_id"])}
-        for r in rows
-        if str(r["report_id"]) not in done
-    ]
+    records = [{**dict(r), "key": str(r["report_id"])} for r in rows]
     if not records:
         logger.info(f"[OneDrive] 신규 업로드 대상 없음 (reg_dt>={since})")
         return
     logger.info(f"[OneDrive] {len(records)}건 업로드 시작 (reg_dt>={since})")
     uploaded = await upload_batch(records, concurrency=2, delay=0.3)
-    ok_keys = [r["key"] for r in records if r["key"] in uploaded]
-    _append_manifest(ok_keys)
-    logger.success(f"[OneDrive] {len(ok_keys)}/{len(records)}건 업로드 완료")
+    ok = 0
+    for r in records:
+        path = uploaded.get(r["key"])
+        if not path:
+            continue
+        try:
+            db._execute(
+                "UPDATE tbl_sec_reports SET archive_path = %s WHERE report_id = %s",
+                (path, int(r["report_id"])),
+            )
+            ok += 1
+        except Exception as e:
+            logger.error(f"[OneDrive] archive_path 기록 실패 (report_id={r['report_id']}): {e}")
+    logger.success(f"[OneDrive] {ok}/{len(records)}건 업로드+archive_path 기록 완료")
