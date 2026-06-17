@@ -15,7 +15,7 @@ from models.ConfigManager import config
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # WARP SOCKS5 프록시 설정
-SOCKS_PROXY = os.getenv("SOCKS_PROXY_URL", "socks5h://localhost:9091")
+SOCKS_PROXY = os.getenv("RESIDENTIAL_PROXY_URL", "socks5h://localhost:9092")  # 가정용(노트북 KT IP) 경유 - BNK는 데이터센터 IP 차단
 PROXIES = {
     'http': SOCKS_PROXY,
     'https': SOCKS_PROXY,
