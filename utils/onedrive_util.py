@@ -82,10 +82,9 @@ async def upload_pdf_to_onedrive(
             if close_session:
                 await session.close()
 
-        # 오류/안내 HTML을 PDF로 저장하지 않도록 가드 (DS 권한오류 페이지 등)
-        head = pdf_bytes[:1024].lstrip()
-        if not pdf_bytes.startswith(b"%PDF") and (head[:1] == b"<" or b"<html" in head.lower() or b"<!doctype" in head.lower()):
-            logger.warning(f"[OneDrive] PDF 아님(HTML 응답) 스킵: {pdf_url}")
+        # 실제 PDF만 저장 (오류 HTML·373B 안내·404 등 비PDF 응답 차단)
+        if b"%PDF" not in pdf_bytes[:1024]:
+            logger.warning(f"[OneDrive] PDF 아님({len(pdf_bytes)}B) 스킵: {pdf_url}")
             return None
 
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -140,6 +139,30 @@ async def upload_batch(records: list[dict], concurrency: int = 1, delay: float =
     return results
 
 
+# 원본 첨부가 직접 다운로드되지 않는 증권사는 OneDrive 공유 링크를 사람용
+# 링크(telegram_url)로 사용한다. (예: DS투자증권 — 그누보드 권한 게이트)
+ONEDRIVE_LINK_FIRMS = {11}  # DS투자증권
+
+
+def onedrive_share_link(remote_path: str) -> str | None:
+    """rclone link로 OneDrive 공유 링크(https://1drv.ms/...) 생성."""
+    try:
+        proc = subprocess.run(
+            [RCLONE_BIN, "link", "--config", RCLONE_CONFIG, remote_path],
+            capture_output=True, text=True, env=_CLEAN_ENV, timeout=60,
+        )
+        if proc.returncode == 0:
+            for line in reversed(proc.stdout.strip().splitlines()):
+                line = line.strip()
+                if line.startswith("http"):
+                    return line
+        else:
+            logger.error(f"[OneDrive] 공유링크 실패: {proc.stderr[-150:]}")
+    except Exception as e:
+        logger.error(f"[OneDrive] 공유링크 오류: {e}")
+    return None
+
+
 # --- 증분 업로드 (스크래퍼 파이프라인에서 호출) ---
 # 업로드 성공 시 tbl_sec_reports.archive_path에 OneDrive 경로를 기록하고,
 # archive_path 미기록 여부를 중복 방지 기준으로 사용한다(별도 매니페스트 불필요).
@@ -182,6 +205,14 @@ async def upload_recent_to_onedrive(db, days: int = 2) -> None:
                 (path, int(r["report_id"])),
             )
             ok += 1
+            # 원본 첨부 직접 다운로드 불가 증권사: 사람용 링크를 OneDrive 공유 링크로 교체
+            if int(r.get("sec_firm_order", -1)) in ONEDRIVE_LINK_FIRMS:
+                link = await asyncio.to_thread(onedrive_share_link, path)
+                if link:
+                    db._execute(
+                        "UPDATE tbl_sec_reports SET telegram_url = %s WHERE report_id = %s",
+                        (link, int(r["report_id"])),
+                    )
         except Exception as e:
             logger.error(f"[OneDrive] archive_path 기록 실패 (report_id={r['report_id']}): {e}")
     logger.success(f"[OneDrive] {ok}/{len(records)}건 업로드+archive_path 기록 완료")
