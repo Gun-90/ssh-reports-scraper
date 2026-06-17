@@ -123,6 +123,7 @@ def BNK_checkNewArticle():
                     "article_url": article_url,
                     "download_url": article_url,
                     "telegram_url": article_url,
+                    "pdf_url": article_url,
                     "writer": writer,
                     "save_time": datetime.now().isoformat(),
                     "key": article_url,

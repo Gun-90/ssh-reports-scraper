@@ -16,6 +16,25 @@ RCLONE_CONFIG = os.getenv("RCLONE_CONFIG", "/home/appuser/.config/rclone/rclone.
 _PROXY_KEYS = {"http_proxy", "https_proxy", "all_proxy", "ftp_proxy"}
 _CLEAN_ENV = {k: v for k, v in os.environ.items() if k.lower() not in _PROXY_KEYS}
 
+# 데이터센터 IP가 차단되는 도메인은 가정용(노트북) SOCKS 프록시 경유로 PDF를 받는다.
+_RESIDENTIAL_PROXY = os.getenv("RESIDENTIAL_PROXY_URL", "socks5h://localhost:9092")
+_RESIDENTIAL_DOMAINS = ("bnkfn.co.kr",)
+
+
+def _residential_download(url: str) -> bytes | None:
+    import requests
+    try:
+        requests.packages.urllib3.disable_warnings()
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                         proxies={"http": _RESIDENTIAL_PROXY, "https": _RESIDENTIAL_PROXY},
+                         timeout=90, verify=False)
+        if r.status_code != 200:
+            return None
+        return r.content
+    except Exception as e:
+        logger.error(f"[OneDrive] residential 다운로드 오류: {e}")
+        return None
+
 _FIRM_NAME_MAP = {
     0: "LS증권", 1: "신한투자", 2: "NH투자", 3: "하나증권",
     4: "KB증권", 5: "삼성증권", 6: "상상인", 7: "신영증권",
@@ -53,34 +72,40 @@ async def upload_pdf_to_onedrive(
     remote_path = f"{RCLONE_REMOTE}/{firm_name}/{year_month}/{reg_dt}_{safe_title}.pdf"
 
     try:
-        import aiohttp
-        close_session = False
-        if session is None:
-            session = aiohttp.ClientSession()
-            close_session = True
+        if any(d in pdf_url for d in _RESIDENTIAL_DOMAINS):
+            # 데이터센터 IP 차단 도메인(BNK 등): 가정용 SOCKS 프록시 경유 다운로드
+            pdf_bytes = await asyncio.to_thread(_residential_download, pdf_url)
+            if pdf_bytes is None:
+                logger.warning(f"[OneDrive] residential PDF download failed: {pdf_url}")
+                return None
+        else:
+            import aiohttp
+            close_session = False
+            if session is None:
+                session = aiohttp.ClientSession()
+                close_session = True
+            try:
+                # GnuBoard(DS투자증권 등) download.php는 게시글을 먼저 조회해야 다운로드 권한
+                # 쿠키가 발급된다. 같은 세션으로 board.php(뷰)를 선조회한 뒤 다운로드한다.
+                if "/bbs/download.php" in pdf_url:
+                    gm = re.search(r"bo_table=([^&]+)&wr_id=(\d+)", pdf_url)
+                    if gm:
+                        base = pdf_url.split("/bbs/")[0]
+                        view_url = f"{base}/bbs/board.php?bo_table={gm.group(1)}&wr_id={gm.group(2)}"
+                        try:
+                            async with session.get(view_url, timeout=aiohttp.ClientTimeout(total=30)) as vr:
+                                await vr.read()
+                        except Exception:
+                            pass
 
-        try:
-            # GnuBoard(DS투자증권 등) download.php는 게시글을 먼저 조회해야 다운로드 권한
-            # 쿠키가 발급된다. 같은 세션으로 board.php(뷰)를 선조회한 뒤 다운로드한다.
-            if "/bbs/download.php" in pdf_url:
-                gm = re.search(r"bo_table=([^&]+)&wr_id=(\d+)", pdf_url)
-                if gm:
-                    base = pdf_url.split("/bbs/")[0]
-                    view_url = f"{base}/bbs/board.php?bo_table={gm.group(1)}&wr_id={gm.group(2)}"
-                    try:
-                        async with session.get(view_url, timeout=aiohttp.ClientTimeout(total=30)) as vr:
-                            await vr.read()
-                    except Exception:
-                        pass
-
-            async with session.get(pdf_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                if resp.status != 200:
-                    logger.warning(f"[OneDrive] PDF download failed ({resp.status}): {pdf_url}")
-                    return None
-                pdf_bytes = await resp.read()
-        finally:
-            if close_session:
-                await session.close()
+                async with session.get(pdf_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"[OneDrive] PDF download failed ({resp.status}): {pdf_url}")
+                        return None
+                    pdf_bytes = await resp.read()
+            finally:
+                if close_session:
+                    await session.close()
 
         # 실제 PDF만 저장 (오류 HTML·373B 안내·404 등 비PDF 응답 차단)
         if b"%PDF" not in pdf_bytes[:1024]:
