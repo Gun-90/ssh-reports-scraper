@@ -392,7 +392,6 @@ async def main(date_str=None):
     ]
     async_functions = [
         ShinHanInvest_checkNewArticle,
-        Koreainvestment_selenium_checkNewArticle,
         Daeshin_checkNewArticle,
         BNK_checkNewArticle,
         # HANA, DAOL, iMfnsec, MERITZ → GA standalone
@@ -406,6 +405,15 @@ async def main(date_str=None):
 
     await run_sync_scrapers(sync_funcs, total_data)
     await run_async_scrapers(async_functions, total_data)
+
+    # 한투: undetected-chromedriver(chromium) 부하 격리 — 동시 배치 종료 후 단독 실행
+    try:
+        kis = await asyncio.wait_for(Koreainvestment_selenium_checkNewArticle(), timeout=200)
+        if kis:
+            total_data.extend(kis)
+        log_scraper_health("Koreainvestment_selenium_checkNewArticle", kis)
+    except Exception as e:
+        logger.error(f"[KIS] 단독 실행 실패: {e}")
 
     if total_data:
         # 2026-06-11: HTML 엔티티 디코딩 (F&amp;F → F&F, M&amp;A → M&A 등)

@@ -1,177 +1,168 @@
-# -*- coding:utf-8 -*- 
+# -*- coding:utf-8 -*-
+"""한국투자증권 — anti-bot WAF 회피용 undetected-chromedriver + Xvfb 비헤드리스.
+
+securities.koreainvestment.com 리서치(Strategy.jsp)는 자동화를 감지해 error.jsp로
+리다이렉트한다. undetected-chromedriver를 Xvfb 가상 디스플레이에서 비헤드리스로
+구동하면 통과된다. 리포트 PDF는 웹은 로그인 게이트이지만 파일서버
+(file.truefriend.com/Storage/...)는 로그인 없이 직접 서빙한다.
+"""
 import os
-import requests
 import re
-import urllib.parse as urlparse
-import urllib.request
-import asyncio
-from datetime import datetime
 import time
+import shutil
+import asyncio
+import urllib.parse
+from datetime import datetime
 from loguru import logger
 
-# selenium
-from selenium import webdriver
+import setuptools._distutils.version  # Python 3.12 distutils shim (uc 의존)
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.FirmInfo import FirmInfo
 from models.ConfigManager import config
 
+SEC_FIRM_ORDER = 13
+DEFAULT_LIST_URL = "https://securities.koreainvestment.com/main/research/research/Strategy.jsp"
+HOME_URL = "https://securities.koreainvestment.com/"
+CHROMIUM = "/usr/bin/chromium"
+SYS_DRIVER = "/usr/bin/chromedriver"
 
-async def Koreainvestment_selenium_checkNewArticle():
-    sec_firm_order      = 13
-    json_data_list = []
 
-    requests.packages.urllib3.disable_warnings()
-
-    TARGET_URL_0 = config.get_urls("Koreainvestment_13")[0]
-    
-    # 백필 등 고페이지 수집용 — KOREAMAX_PAGES 환경변수 (기본 10)
-    _max_pages = int(os.getenv("KOREAMAX_PAGES", "10"))
-
-    CATEGORIES = [
-        {"name": "전체", "board_order": 0, "script": None, "mkt_tp": "KR"},
-        {"name": "미국 현지 리서치", "board_order": 10, "script": "onTab1Selected('stifel', 1);", "mkt_tp": "GLOBAL"}
-    ]
-
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--remote-allow-origins=*")
-    chrome_options.add_argument("--disable-software-rasterizer")
-
-    import platform as _plat
-    _is_arm = _plat.machine() in ("aarch64", "arm64")
-
-    # 시스템에 설치된 chromedriver 우선 확인 (ARM64 호환성 해결)
-    system_chromedriver = "/usr/bin/chromedriver"
-    system_chrome = "/usr/bin/chromium-browser"
-    snap_chromedriver = "/snap/bin/chromium.chromedriver"
-
-    if os.path.exists(system_chromedriver):
-        logger.debug(f"KoreaInvestment Scraper: Using system chromedriver at {system_chromedriver}")
-        service = Service(executable_path=system_chromedriver)
-    elif os.path.exists(snap_chromedriver):
-        logger.debug(f"KoreaInvestment Scraper: Using snap chromedriver at {snap_chromedriver}")
-        service = Service(executable_path=snap_chromedriver)
-    elif _is_arm:
-        # ARM64에서는 webdriver_manager 대신 시스템 패키지 필수
-        logger.warning("KoreaInvestment: ARM64 detected, trying default Service()")
-        service = Service()
-    else:
-        # x86_64 환경 (GitHub Actions 등) — webdriver_manager 사용
-        try:
-            logger.debug("KoreaInvestment Scraper: System chromedriver not found, trying ChromeDriverManager...")
-            service = Service(ChromeDriverManager().install())
-        except Exception as e:
-            logger.error(f"Failed to install ChromeDriver: {e}")
-            service = Service()
-
-    binary_paths = [
-        "/usr/bin/chromium-browser", "/usr/bin/chromium", "/usr/bin/google-chrome",
-        "/snap/bin/chromium",
-    ]
-    for bp in binary_paths:
-        if os.path.exists(bp):
-            chrome_options.binary_location = bp
-            break
-
-    logger.debug("KoreaInvestment Scraper: Launching headless browser...")
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-
+def _writable_driver():
+    """uc는 드라이버 바이너리를 패치(쓰기)하므로 쓰기 가능한 복사본 경로를 준다."""
+    dst = "/tmp/kis_chromedriver"
     try:
-        for cat in CATEGORIES:
-            article_board_order = cat["board_order"]
-            firm_info = FirmInfo(sec_firm_order, article_board_order)
-            logger.debug(f"KoreaInvestment Scraper: Processing [{cat['name']}]")
+        if not os.path.exists(dst):
+            shutil.copy(SYS_DRIVER, dst)
+            os.chmod(dst, 0o755)
+    except Exception as e:
+        logger.error(f"KIS driver copy 실패: {e}")
+        return SYS_DRIVER
+    return dst
 
-            driver.get(TARGET_URL_0)
-            driver.implicitly_wait(5)
 
-            if cat["script"]:
-                driver.execute_script(cat["script"])
-                time.sleep(2)
+def _kis_onclick_to_pdf(onclick: str) -> str:
+    """새 prePdfFileView(...) onclick → file.truefriend.com 직링크."""
+    if not onclick:
+        return ""
+    s = onclick.replace("&amp;", "&")
+    m = re.search(r"prePdfFileView\d?\((.*)\)", s)
+    if not m:
+        return ""
+    parts = [p.strip().strip("'\"") for p in m.group(1).split(",")]
+    if len(parts) < 4:
+        return ""
+    filepath_q, filename, option, date = parts[0], parts[1], parts[2], parts[3]
+    air = parts[4] if len(parts) > 4 else "N"
+    kor = parts[5] if len(parts) > 5 else "Y"
+    spec = parts[6] if len(parts) > 6 else "N"
+    r = Koreainvestment_MAKE_LIST_ARTICLE_URL(filepath_q, filename, option, date, air, kor, spec)
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(r).query)
+    fp = q.get("filepath", [""])[0]
+    fn = q.get("filename", [""])[0]
+    if fp and fn:
+        return f"http://file.truefriend.com/Storage/{fp}/{fn}"
+    return r
 
-            for page in range(1, _max_pages + 1):
-                if page > 1:
-                    driver.execute_script(f"goPage({page});")
-                    time.sleep(2)
 
-                title_elements = driver.find_elements(By.XPATH, '//*[@id="searchResult"]/div/ul/li/a[1]/div[2]/span[1]')
-                link_elements = driver.find_elements(By.XPATH, '//*[@id="searchResult"]/div/ul/li/a[2]')
-                info_elements = driver.find_elements(By.XPATH, '//*[@id="searchResult"]/div/ul/li/a[1]/span')
-                
-                if not title_elements:
-                    logger.info(f"KoreaInvestment Scraper: No more articles on page {page}")
-                    break
-                
-                logger.info(f"KoreaInvestment Scraper: Collected {len(title_elements)} items on page {page}")
+def _new_driver():
+    opts = uc.ChromeOptions()
+    for a in ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1366,900", "--lang=ko-KR"]:
+        opts.add_argument(a)
+    opts.binary_location = CHROMIUM
+    return uc.Chrome(options=opts, driver_executable_path=_writable_driver(),
+                     browser_executable_path=CHROMIUM, version_main=148,
+                     headless=False, use_subprocess=True)
 
-                for title, link, article_info in zip(title_elements, link_elements, info_elements):
-                    LIST_ARTICLE_TITLE = title.text
-                    LIST_ARTICLE_URL_RAW = link.get_attribute("onclick")
-                    article_info_str = article_info.text.split(' ')
-                    
-                    if len(article_info_str) < 2: continue
 
-                    LIST_ARTICLE_URL = Koreainvestment_GET_LIST_ARTICLE_URL(LIST_ARTICLE_URL_RAW)
-                    
-                    json_data_list.append({
-                        "sec_firm_order":sec_firm_order,
-                        "article_board_order":article_board_order,
-                        "firm_nm":firm_info.get_firm_name(),
-                        "reg_dt":re.sub(r"[-./]", "", article_info_str[1]),
-                        "download_url": LIST_ARTICLE_URL,
-                        "telegram_url": LIST_ARTICLE_URL,
-                        "pdf_url": LIST_ARTICLE_URL,
-                        "article_title":LIST_ARTICLE_TITLE,
-                        "writer": article_info_str[0],
-                        "key": LIST_ARTICLE_URL,
-                    "report_unique_key": LIST_ARTICLE_URL,
-                        "save_time": datetime.now().isoformat(),
-                        "mkt_tp": cat["mkt_tp"]
-                    })
+def _scrape_kis_sync(list_url: str):
+    out = []
+    # 동시 스크래핑 부하로 chromium 기동이 실패("cannot connect to chrome")할 수 있어 재시도
+    driver = None
+    for attempt in range(1, 4):
+        try:
+            driver = _new_driver()
+            break
+        except Exception as e:
+            logger.warning(f"KIS chromium 기동 실패 {attempt}/3: {str(e)[:80]}")
+            try:
+                if driver: driver.quit()
+            except Exception:
+                pass
+            driver = None
+            time.sleep(4)
+    if driver is None:
+        logger.error("KIS: chromium 기동 3회 실패")
+        return out
+    try:
+        driver.set_page_load_timeout(60)
+        driver.get(HOME_URL)
+        time.sleep(4)
+        driver.get(list_url)
+        time.sleep(8)
+        if "error.jsp" in driver.current_url:
+            logger.error("KIS: anti-bot 차단(error.jsp)")
+            return out
+        firm_info = FirmInfo(SEC_FIRM_ORDER, 0)
+        btns = driver.find_elements(By.XPATH, "//a[contains(@onclick, 'prePdfFileView')]")
+        logger.info(f"KIS: {len(btns)} report links on page")
+        for btn in btns:
+            onclick = btn.get_attribute("onclick") or ""
+            pdf = _kis_onclick_to_pdf(onclick)
+            if not pdf:
+                continue
+            title, writer = "", ""
+            try:
+                li = btn.find_element(By.XPATH, "./ancestor::li[1]")
+                try:
+                    title = li.find_element(By.CSS_SELECTOR, "span.body_tit").text.strip()
+                except Exception:
+                    title = ""
+                ems = li.find_elements(By.CSS_SELECTOR, "span.tit_info em")
+                if ems:
+                    writer = (ems[0].text or "").strip()
+            except Exception:
+                pass
+            dm = re.search(r"'(\d{4}[-./]\d{2}[-./]\d{2})'", onclick.replace("&amp;", "&"))
+            reg_dt = re.sub(r"[-./]", "", dm.group(1)) if dm else ""
+            out.append({
+                "sec_firm_order": SEC_FIRM_ORDER, "article_board_order": 0,
+                "firm_nm": firm_info.get_firm_name(), "reg_dt": reg_dt,
+                "article_title": title or "(제목없음)",
+                "article_url": pdf, "download_url": pdf, "telegram_url": pdf, "pdf_url": pdf,
+                "writer": writer, "key": pdf, "report_unique_key": pdf,
+                "save_time": datetime.now().isoformat(), "mkt_tp": "KR",
+            })
     except Exception as e:
         logger.error(f"Error during KoreaInvestment scraping: {e}")
     finally:
-        driver.quit()
-        
-    logger.info(f"Total articles collected: {len(json_data_list)}")
-    return json_data_list
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    # 동일 pdf_url 중복 제거
+    uniq = {}
+    for r in out:
+        uniq.setdefault(r["key"], r)
+    return list(uniq.values())
 
-def Koreainvestment_GET_LIST_ARTICLE_URL(string):
-    if not string: return ""
-    string = string.replace("javascript:prePdfFileView2(", "").replace("javascript:prePdfFileView3(", "").replace("&amp;", "&").replace(")", "").replace("(", "").replace("'", "")
-    params = [p.strip() for p in string.split(",")]
-    
-    if len(params) < 5: return ""
 
-    category = "category1="+params[0] +"&"+ "category2=" + params[1]
-    filename = params[2]
-    option = params[3]
-    datasubmitdate = params[4]
-    
-    air_yn = params[5] if len(params) > 5 else "N"
-    kor_yn = params[6] if len(params) > 6 else "Y"
-    special_yn = params[7] if len(params) > 7 else "N"
+async def Koreainvestment_selenium_checkNewArticle():
+    urls = config.get_urls("Koreainvestment_13")
+    list_url = urls[0] if urls else DEFAULT_LIST_URL
+    loop = asyncio.get_event_loop()
+    try:
+        res = await loop.run_in_executor(None, _scrape_kis_sync, list_url)
+        logger.info(f"Total articles collected: {len(res)}")
+        return res
+    except Exception as e:
+        logger.error(f"Koreainvestment error: {e}")
+        return []
 
-    r = Koreainvestment_MAKE_LIST_ARTICLE_URL(category, filename, option, datasubmitdate, air_yn, kor_yn, special_yn)
-
-    parsed_url = urlparse.urlparse(r)
-    query_params = urlparse.parse_qs(parsed_url.query)
-    
-    filepath = query_params.get('filepath', [''])[0]
-    filename_val = query_params.get('filename', [''])[0]
-    
-    if filepath and filename_val:
-        return f"http://file.truefriend.com/Storage/{filepath}/{filename_val}"
-    else:
-        return r
 
 def Koreainvestment_MAKE_LIST_ARTICLE_URL(filepath, filename, option, datasubmitdate, air_yn, kor_yn, special_yn):
     filename = urllib.parse.quote(filename)
@@ -224,6 +215,7 @@ def Koreainvestment_MAKE_LIST_ARTICLE_URL(filepath, filename, option, datasubmit
         return f"{host_name2 if kor_yn == 'Y' else host_name3}{datasubmitdate}/{'special' if special_yn == 'Y' else 'daily'}"
     else:
         return f"{host_name}?filepath={urllib.parse.quote(filepath)}&filename={filename}&option={option}"
+
 
 if __name__ == "__main__":
     results = asyncio.run(Koreainvestment_selenium_checkNewArticle())

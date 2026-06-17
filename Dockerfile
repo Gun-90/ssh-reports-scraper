@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     unzip \
     chromium \
     chromium-driver \
+    xvfb \
+    xauth \
     && rm -rf /var/lib/apt/lists/*
 
 # 2-1. rclone 신버전 설치
@@ -65,4 +67,4 @@ USER appuser
 
 # 10. 기본 실행 명령 (스케줄러 실행)
 # 런타임에서 uv run을 쓰면 appuser 권한으로 .venv 동기화를 시도할 수 있다.
-CMD [".venv/bin/python", "scheduler.py"]
+CMD ["xvfb-run", "-a", "-s", "-screen 0 1366x900x24", ".venv/bin/python", "scheduler.py"]
